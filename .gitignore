@@ -1,0 +1,9 @@
+.env
+data/
+__pycache__/
+*.pyc
+*.egg-info/
+.ipynb_checkpoints/
+build/
+*.o
+*.so
