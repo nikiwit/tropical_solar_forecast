@@ -249,8 +249,31 @@ conditional climatology plus NWP and extra lead time costs almost nothing.
 | jakarta | 111.1 | 35.7% | 0.67 |
 | **manila** | **126.2** | **40.6%** | **0.61** |
 
-Manila is the hardest site by a clear margin — it also had the most divergent
-turbidity fit and the fewest detected clear periods. Flag it in Phase 5.
+Manila is the hardest site by a clear margin. Diagnosed rather than assumed —
+**site difficulty is predicted almost entirely by sky variability**:
+
+| Property | r with 24 h nRMSE |
+|---|---|
+| **CSI interquartile range** | **+0.854** |
+| CSI standard deviation | +0.709 |
+| NSRDB fill-flag rate | +0.692 |
+| Overcast fraction (CSI < 0.3) | +0.663 |
+| Clear fraction (CSI > 0.95) | −0.551 |
+| Ramp rate | +0.333 |
+
+Manila tops the variability measures — widest CSI IQR (0.464 vs 0.327 at
+Bangkok), most overcast, highest ramp rate — **and** has the worst retrieval
+quality, with 24.2% of daytime samples carrying a non-zero NSRDB fill flag
+against 15–20% elsewhere. So part of its error is data quality rather than
+forecast difficulty, which matters when interpreting the transfer study.
+
+> **Correction to an earlier note here:** Manila's turbidity fit is *not*
+> suspect. Its clear-period RMSE is 17.0 W/m², mid-range for the set, and fit
+> quality correlates **negatively** with site error (r = −0.538) — better-fitted
+> sites are the harder ones, because a stable sky is both easier to calibrate
+> against and easier to forecast. Manila does have the fewest detected clear
+> periods (6,100), but that is a symptom of its variability, not a defect in the
+> calibration.
 
 ### Where this sits against published work
 
