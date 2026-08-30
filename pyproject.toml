@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solarfc"
+version = "0.1.0"
+description = "Multi-horizon short-term solar forecasting for tropical smart grids (Tropical-TFT)"
+readme = "DOCS.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Nikita Marchenko" }]
+
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "pvlib>=0.11",
+    "xarray>=2024.1",
+    "netCDF4>=1.6",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+]
+
+[project.optional-dependencies]
+# Model training. Kept separate so the evaluation framework and the data
+# pipeline can be installed on a machine that does not need torch.
+models = [
+    "torch>=2.7",
+    "xgboost>=2.0",
+    "lightgbm>=4.0",
+    "optuna>=3.6",
+    "shap>=0.45",
+]
+# Zero-shot foundation-model baseline (Chronos-2).
+foundation = ["chronos-forecasting>=1.5"]
+dev = ["pytest>=8.0"]
+
+[project.urls]
+Repository = "https://github.com/nikiwit/tropical_solar_forecast"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --tb=short"

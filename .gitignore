@@ -7,3 +7,5 @@ __pycache__/
 build/
 *.o
 *.so
+.pytest_cache/
+results/
