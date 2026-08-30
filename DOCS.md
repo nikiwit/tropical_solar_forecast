@@ -157,6 +157,113 @@ Also noted: the existing daytime mask (`clear-sky > 20 W/m²`) is **equivalent t
 the field's standard zenith < 85° cutoff** — at KL they select 123,569 and
 123,988 samples. Same filter, different units. No change needed.
 
+---
+
+## Phase 2 Results (XGBoost, 924 models, 28m38s, 0 failures)
+
+`data/processed/results/results.csv`. Config: untuned defaults, `lr=0.05`,
+`max_depth=8`, early stopping on 2019. Rounds used 36–194 — nowhere near the
+2000 cap, so **these are not XGBoost's ceiling**; Optuna tuning is Phase 3.
+
+### Target representation — settled, and frozen in `config.DEFAULT_TARGET`
+
+Clear-sky index won **318 of 462** paired comparisons (68.8%), Wilcoxon
+p = 1.4e-20. Margin is small — 0.35 W/m² MAE, ~0.4% — so it is a *reliable*
+preference, not a large one.
+
+The win sits exactly where theory says it should. Removing the diurnal cycle
+helps most where that cycle dominates:
+
+| Horizon | 20min | 30min | 1h | 2h | 3h | 6h | 24h |
+|---|---|---|---|---|---|---|---|
+| CSI win rate | **100%** | 93% | 81% | 52% | 43% | 67% | 81% |
+
+Past 2h the model is doing conditional climatology and the representation
+stops mattering.
+
+### vs smart persistence — 77 site-horizon pairs
+
+| | Result |
+|---|---|
+| Beats on RMSE | **77/77** |
+| Beats on MAE | 64/77 |
+| Beats on **both** (AEMO accreditation test) | **64/77** |
+
+Every one of the 13 failures is at **20 min or 30 min**. From 1 h out, XGBoost
+passes both criteria at every site.
+
+| Horizon | XGBoost | Smart persistence | Improvement |
+|---|---|---|---|
+| 20 min | 58.7 | 55.8 | **−5.1%** |
+| 30 min | 67.6 | 66.0 | **−2.3%** |
+| 1 h | 82.1 | 85.5 | +4.1% |
+| 3 h | 98.2 | 130.3 | +24.7% |
+| 6 h | 103.1 | 170.8 | +39.7% |
+| 12 h | 106.4 | 184.0 | +42.2% |
+| 24 h | 106.4 | 137.5 | +22.7% |
+| 36 h | 109.7 | 192.7 | +43.1% |
+| 48 h | 109.1 | 144.7 | +24.6% |
+
+> **Why sub-hourly fails MAE but never RMSE.** The models train on squared
+> error, so they optimise RMSE at MAE's expense. At 20–30 min persistence is
+> near-optimal and that trade is enough to lose the MAE comparison. Worth
+> testing an MAE or Huber objective for the sub-hourly horizons in Phase 3 —
+> AEMO requires both criteria, so this is not cosmetic.
+
+### The deployable gap closes past 3 h
+
+DEPLOYABLE − FULL, MAE (W/m², `csi`/`realistic`, mean over 7 sites):
+
+| 20min | 1h | 3h | 6h | 12h | 24h | 36h |
+|---|---|---|---|---|---|---|
+| +1.27 | +1.09 | +0.85 | +0.35 | −0.21 | −0.17 | −0.15 |
+
+**Satellite-only features (AOD, ozone, asymmetry, cloud type) are worth ~1.3
+W/m² at 20 min and nothing at all past 6 h.** Negative values are noise —
+DEPLOYABLE is a strict subset, so it cannot genuinely be better.
+
+This is the headline Contribution 4 number: a plant with only IEC 61724
+instrumentation loses **nothing measurable** at the horizons the Malaysian grid
+code actually mandates.
+
+### Error goes flat after 6 h
+
+KL, `realistic`, FULL: 6h 105.1 → 12h 107.2 → 24h 107.9 → 36h 108.8 → 48h 107.5.
+A 48-hour forecast is as accurate as a 6-hour one. Beyond ~6 h the model runs on
+conditional climatology plus NWP and extra lead time costs almost nothing.
+
+> **FS swings are the reference moving, not the model.** FS is +0.31 at 24 h and
+> +0.50 at 36 h while the model sits at ~108 MAE at both. Smart persistence at
+> exactly 24 h is strong (same clock time yesterday, MAE 137) and weak at 36 h
+> (night origin, MAE 193). Always quote MAE beside FS.
+
+### Site difficulty at 24 h (`realistic`, FULL, `csi`)
+
+| Site | MAE | nRMSE | R² |
+|---|---|---|---|
+| bangkok | 86.0 | 27.4% | 0.79 |
+| ho_chi_minh | 102.2 | 30.0% | 0.76 |
+| kota_kinabalu | 105.9 | 30.7% | 0.77 |
+| penang | 105.4 | 32.8% | 0.73 |
+| kuala_lumpur | 107.9 | 33.4% | 0.72 |
+| jakarta | 111.1 | 35.7% | 0.67 |
+| **manila** | **126.2** | **40.6%** | **0.61** |
+
+Manila is the hardest site by a clear margin — it also had the most divergent
+turbidity fit and the fewest detected clear periods. Flag it in Phase 5.
+
+### Where this sits against published work
+
+nRMSE 19.7% at 20 min, 29.9% at 6 h, 31.7% at 24 h. Published tropical GHI
+forecasting runs roughly 15–25% intra-hour, 20–35% intra-day, 30–45%
+day-ahead — so this is inside the normal band throughout and at the good end
+day-ahead.
+
+> **Do not compare these directly to ground-station papers.** NSRDB is
+> satellite-derived, so it is smoother than a pyranometer and contains no
+> enhancement events. Real measured irradiance would score worse. The Phase 5
+> Darwin comparison is what quantifies that gap.
+
 ### Specification bugs found during implementation
 
 | Issue | Resolution |
@@ -542,7 +649,7 @@ Not useful for training (no historical obs, no solar radiation data). Intended u
 - [x] Results schema — one long-format table for every phase
 - [x] Reproducible baselines script (replaces the interactive reference table)
 - [x] XGBoost / LightGBM trainers + resumable run harness
-- [ ] **Run the full XGBoost grid** (924 models — both targets, then freeze)
+- [x] **Full XGBoost grid run** — 924 models, 0 failures, `csi` target frozen
 - [ ] LightGBM on the winning target (462 models)
 - [ ] Operational NWP baseline (JMA GSM archived GHI)
 - [ ] LSTM encoder-decoder, BiLSTM-GRU, physics-guided CNN-BiLSTM (MIMO)
