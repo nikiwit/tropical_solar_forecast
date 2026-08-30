@@ -206,9 +206,70 @@ passes both criteria at every site.
 
 > **Why sub-hourly fails MAE but never RMSE.** The models train on squared
 > error, so they optimise RMSE at MAE's expense. At 20–30 min persistence is
-> near-optimal and that trade is enough to lose the MAE comparison. Worth
-> testing an MAE or Huber objective for the sub-hourly horizons in Phase 3 —
-> AEMO requires both criteria, so this is not cosmetic.
+> near-optimal and that trade is enough to lose the MAE comparison. AEMO
+> requires both criteria, so this is not cosmetic — and it is fixable, below.
+
+### Fixing the sub-hourly AEMO failure: use the right loss
+
+Refitting 20 min and 30 min with an absolute-error objective
+(`--objective mae`), all 7 sites, `realistic`/FULL/`csi`:
+
+| Objective | MAE pass | RMSE pass | **Both** | Mean MAE |
+|---|---|---|---|---|
+| `squared_error` (default) | 1/14 | 14/14 | **1/14** | 63.1 |
+| `huber` | 2/14 | 14/14 | **2/14** | 62.5 |
+| **`mae`** | 12/14 | 14/14 | **12/14** | **59.3** |
+
+Smart persistence averages 60.9 over the same 14 pairs, so the absolute-error
+models go from losing to winning. **RMSE compliance is unaffected — 14/14 for
+every objective** — so the fix costs nothing on the criterion that already
+passed.
+
+Per site at 20 min, `mae` objective vs smart persistence: KL 61.0 v 63.7,
+Penang 50.7 v 52.4, KK 48.7 v 49.5, HCMC 56.5 v 57.9, Bangkok 42.1 v 42.4,
+Jakarta 56.8 v 58.1 — all wins. **Manila is the sole failure** (69.5 v 66.9),
+consistent with it being the most variable site.
+
+Takeaway for the write-up: the loss function is a per-horizon choice, not a
+default. Squared error for the horizons where RMSE dominates, absolute error
+sub-hourly where persistence is the thing to beat.
+
+### Learning rate: no headroom (negative result)
+
+Rounds stopping at 36–194 suggested `lr=0.05` might be leaving something on the
+table. It is not. 7 sites × 4 horizons:
+
+| Learning rate | Mean MAE | Mean RMSE | Typical rounds |
+|---|---|---|---|
+| 0.05 | 87.56 | 125.49 | ~200 |
+| 0.02 | 87.47 | 125.14 | ~300 |
+| 0.01 | 87.58 | 125.28 | ~600 |
+
+Differences are ~0.1%, i.e. noise, for 3× the compute. **Optuna should not
+spend trials on learning rate.**
+
+### What else was tried, and did not help
+
+| Lever | Outcome |
+|---|---|
+| Loss function (`mae` sub-hourly) | **The one real gain** — AEMO 1/14 → 12/14 |
+| Learning rate 0.05 / 0.02 / 0.01 | Nothing (87.56 / 87.47 / 87.58 MAE) |
+| Deeper trees, `max_depth` 8 → 12 | **Worse** at every site and horizon tested |
+| `min_child_weight` 5 → 20 | ~1–2% sub-hourly only; 6 h unchanged (122.4→122.1) |
+| Dropping Manila's flagged rows | **Worse**, 67.8 → 68.9 — losing 26% of the training data costs more than the retrieval noise it removes |
+
+> **What this adds up to.** Extra satellite features buy nothing past 3 h, error
+> is flat from 6 h to 48 h, and no hyperparameter moves the result. Three
+> independent findings pointing the same way: the gradient-boosted models sit at
+> a **predictability ceiling, not a capacity or feature ceiling**. That is the
+> project's founding premise about tropical convection, now measured rather than
+> asserted — and it frames what comes next honestly. The encoder side looks
+> close to tapped out, so whatever Tropical-TFT gains should come from the
+> decoder/NWP path and from regime awareness, which is what Module A is for.
+
+Manila is not fixable by tuning. Best achieved is 67.8 against smart
+persistence at 66.9, with the highest sky variability of the seven sites and
+26% flagged retrievals. Report it as the hard case rather than chasing it.
 
 ### The deployable gap closes past 3 h
 
