@@ -37,6 +37,7 @@ from ..dataset import SupervisedSet, to_ghi
 
 __all__ = [
     "ALGORITHMS",
+    "OBJECTIVES",
     "GBDTConfig",
     "CATEGORICAL_COLUMNS",
     "fit_gbdt",
@@ -44,6 +45,22 @@ __all__ = [
 ]
 
 ALGORITHMS: tuple[str, ...] = ("xgboost", "lightgbm")
+
+#: Loss functions, mapped to each library's own spelling.
+OBJECTIVES: dict[str, dict[str, str]] = {
+    "squared_error": {
+        "xgboost": "reg:squarederror",
+        "lightgbm": "regression",
+    },
+    "mae": {
+        "xgboost": "reg:absoluteerror",
+        "lightgbm": "regression_l1",
+    },
+    "huber": {
+        "xgboost": "reg:pseudohubererror",
+        "lightgbm": "huber",
+    },
+}
 
 #: Columns that are codes rather than quantities.
 #:
@@ -67,6 +84,17 @@ class GBDTConfig:
     """
 
     algorithm: str = "xgboost"
+    #: Loss the trees are fitted against.
+    #:
+    #: Squared error is the default and optimises RMSE. That is not free:
+    #: measured across seven sites, squared-error models beat smart
+    #: persistence on RMSE at every one of 77 site-horizon pairs but lose
+    #: on MAE at 13 of them, all at 20 and 30 minutes. Since AEMO
+    #: accreditation requires beating the incumbent on *both*, the loss
+    #: is a reportable choice rather than a default to leave alone.
+    #: ``"mae"`` fits absolute error directly; ``"huber"`` is the
+    #: compromise, quadratic near zero and linear in the tails.
+    objective: str = "squared_error"
     n_estimators: int = 2000
     learning_rate: float = 0.05
     max_depth: int = 8
@@ -111,6 +139,12 @@ def fit_gbdt(
         raise ValueError(
             f"algorithm must be one of {ALGORITHMS}, got {config.algorithm!r}"
         )
+    if config.objective not in OBJECTIVES:
+        raise ValueError(
+            f"objective must be one of {tuple(OBJECTIVES)}, got "
+            f"{config.objective!r}"
+        )
+    loss = OBJECTIVES[config.objective][config.algorithm]
     if len(train) == 0 or len(validation) == 0:
         raise ValueError(
             f"empty split: train={len(train)}, validation={len(validation)}"
@@ -133,6 +167,7 @@ def fit_gbdt(
             n_jobs=config.n_jobs,
             tree_method="hist",
             enable_categorical=True,
+            objective=loss,
             early_stopping_rounds=config.early_stopping_rounds,
             **config.extra,
         )
@@ -157,6 +192,7 @@ def fit_gbdt(
         reg_lambda=config.reg_lambda,
         random_state=config.random_state,
         n_jobs=config.n_jobs,
+        objective=loss,
         verbosity=-1,
         **config.extra,
     )

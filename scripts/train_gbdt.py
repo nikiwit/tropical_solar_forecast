@@ -42,6 +42,7 @@ from solarfc.data import load_site
 from solarfc.dataset import TARGETS, build_known_future_grid, build_supervised
 from solarfc.features import FEATURE_SETS, build_observed_past
 from solarfc.models.gbdt import (
+    OBJECTIVES,
     GBDTConfig,
     best_iteration,
     fit_gbdt,
@@ -97,6 +98,20 @@ def main(argv=None) -> int:
     parser.add_argument("--n-estimators", type=int, default=2000)
     parser.add_argument("--learning-rate", type=float, default=0.05)
     parser.add_argument("--max-depth", type=int, default=8)
+    parser.add_argument(
+        "--objective",
+        default="squared_error",
+        choices=list(OBJECTIVES),
+        help="loss the trees are fitted against",
+    )
+    parser.add_argument(
+        "--label",
+        default=None,
+        help=(
+            "suffix for the model name, so a hyperparameter experiment "
+            "lands beside the headline rows instead of overwriting them"
+        ),
+    )
     args = parser.parse_args(argv)
 
     warnings.filterwarnings("ignore")
@@ -121,13 +136,18 @@ def main(argv=None) -> int:
 
     config = GBDTConfig(
         algorithm=args.algorithm,
+        objective=args.objective,
         n_estimators=args.n_estimators,
         learning_rate=args.learning_rate,
         max_depth=args.max_depth,
     )
+    # A labelled run is a separate model in the results file, so a
+    # hyperparameter experiment can be compared against the headline rows
+    # rather than silently replacing them.
+    model_name = args.algorithm + (f"-{args.label}" if args.label else "")
     meta = RunMeta(
-        run_id=f"{args.algorithm}-{int(time.time())}",
-        model=args.algorithm,
+        run_id=f"{model_name}-{int(time.time())}",
+        model=model_name,
         hyperparameters=config.to_dict(),
     )
 
@@ -135,13 +155,13 @@ def main(argv=None) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if args.overwrite and out_path.exists():
         existing = load_results(out_path)
-        kept = existing[existing["model"] != args.algorithm]
+        kept = existing[existing["model"] != model_name]
         kept.to_csv(out_path, index=False)
         print(
             f"Removed {len(existing) - len(kept)} existing {args.algorithm} rows"
         )
 
-    done_already = _completed(out_path, args.algorithm)
+    done_already = _completed(out_path, model_name)
     combos = [
         (site, label, track, feature_set, target)
         for site in args.sites
@@ -310,7 +330,7 @@ def main(argv=None) -> int:
             print(f"  {entry[:5]}  {entry[5]}")
         return 1
 
-    _summarise(out_path, args.algorithm)
+    _summarise(out_path, model_name)
     return 0
 
 
