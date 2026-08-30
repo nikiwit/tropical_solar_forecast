@@ -25,6 +25,8 @@ variant and the C++ engine are scored by identical code.
 | `metrics.py` | MAE, RMSE, MBE, MAPE, nMAE, nRMSE, R², Forecast Skill, pinball, PICP, PINAW, reliability |
 | `ramp.py` | Ramp-event detection, precision/recall/F1, detection lead time |
 | `baselines.py` | Naive persistence, smart persistence, clear-sky, clear-sky index |
+| `era5.py` | ERA5 zip handling, nearest-gridpoint extraction, upsampling, unit derivation |
+| `covariates.py` | Known-future decoder inputs in three NWP tracks, forecast-error degradation |
 
 ### Design decisions worth knowing
 
@@ -320,8 +322,11 @@ Not useful for training (no historical obs, no solar radiation data). Intended u
 - [x] 73 unit tests passing, including leakage guards on every baseline
 - [x] Naive persistence, smart persistence, clear-sky baselines implemented and verified on real data
 - [x] Hashed split manifest writer (feeds the Zenodo deposit)
-- [ ] ERA5 upsampling pipeline (hourly → 10-min; `xarray` + `netCDF4` now installed)
-- [ ] Known-future covariate builder — NWP-free and perfect-foresight tracks
+- [x] ERA5 upsampling pipeline — zip handling, nearest gridpoint, accumulation shift verified
+- [x] ERA5 cache built to Parquet, 7 sites × 263,083 rows, validated against NSRDB
+- [x] Known-future covariate builder — three tracks (NWP-free, realistic, perfect-foresight)
+- [ ] Measure real NWP error from JMA archived forecasts, fit the degradation model
+- [ ] Operational NWP baseline (JMA GSM archived GHI)
 - [ ] Feature engineering pipeline (lags, rolling stats, calendar encodings)
 - [ ] XGBoost / LightGBM (direct, 9 models per horizon)
 - [ ] LSTM encoder-decoder, BiLSTM-GRU, physics-guided CNN-BiLSTM (MIMO)
