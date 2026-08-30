@@ -7,6 +7,7 @@ by identical code.
 Modules
 -------
 config      Sites, horizons, monsoon phases, split years, thresholds.
+covariates  Known-future decoder inputs in three NWP tracks.
 data        NSRDB Himawari loading and grid-continuity checks.
 era5        ERA5 loading, site extraction and upsampling to the NSRDB grid.
 splits      Chronological splits, monsoon labelling, transition windows.
@@ -19,11 +20,12 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-from . import baselines, config, data, era5, metrics, ramp, splits
+from . import baselines, config, covariates, data, era5, metrics, ramp, splits
 
 __all__ = [
     "baselines",
     "config",
+    "covariates",
     "data",
     "era5",
     "metrics",
