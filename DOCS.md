@@ -95,7 +95,7 @@ Metrics never filter silently: a metric that changes its own sample set is not c
 (`forecast(t+h) = obs(t)`) is weak in a strongly diurnal signal and inflates FS for every
 model. Smart persistence holds the clear-sky index constant and rescales by clear-sky
 irradiance at the target time. Measured on KL 2020, smart persistence beats naive by
-FS = 0.08 at 20min rising to 0.51 at 6h — then collapses to 0.003 at 24h, because naive
+FS = 0.075 at 20min rising to 0.472 at 6h — then collapses to 0.003 at 24h, because naive
 persistence at 24h is the same time of day yesterday.
 
 **Ramp metrics exist because RMSE hides the events that matter.** Ramps are ~15% of daytime
