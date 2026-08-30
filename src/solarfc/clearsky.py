@@ -9,17 +9,19 @@ not subtle: observed GHI appears to exceed the clear-sky envelope for 19-28% of
 daytime samples, which reads as an error to anyone who checks.
 
 This is a known failure mode rather than a surprise. Chen et al. (2022,
-*Renewable Energy*) report that using default model inputs instead of locally
-measured parameters leads models to underestimate solar radiation, and that
-estimating turbidity from local meteorological data cuts clear-sky GHI RMSE from
-24.02 to 9.94 W/m^2. Fitting turbidity to the site is standard practice.
+*Renewable Energy*) report that using default model inputs instead of
+locally measured parameters leads models to underestimate solar
+radiation, and that estimating turbidity from local meteorological data
+cuts clear-sky GHI RMSE from 24.02 to 9.94 W/m^2. Fitting turbidity to
+the site is standard practice.
 
-Fitting one value per site on the training years reduces RMSE against NSRDB's
-clear-sky from 27.2 to 17.9 W/m^2 at Kuala Lumpur and 35.5 to 18.2 at Ho Chi
-Minh City. A per-month fit was tested and reaches only 17.1 -- an extra eleven
-parameters per site for the last 5% of the improvement, with the added risk of
-absorbing genuine seasonal aerosol variation into the clear-sky baseline, which
-is signal Module A is meant to learn. Annual per-site is therefore the choice.
+Fitting one value per site on the training years reduces RMSE against
+NSRDB's clear-sky from 27.2 to 17.9 W/m^2 at Kuala Lumpur and 35.5 to
+18.2 at Ho Chi Minh City. A per-month fit was tested and reaches only
+17.1 -- an extra eleven parameters per site for the last 5% of the
+improvement, with the added risk of absorbing genuine seasonal aerosol
+variation into the clear-sky baseline, which is signal Module A is meant
+to learn. Annual per-site is therefore the choice.
 
 Why Ineichen rather than McClear or REST2
 -----------------------------------------
@@ -46,9 +48,9 @@ Two consequences, both of which belong in the methodology chapter:
    over-irradiance ratio. Values above 1 against a *fitted* envelope are
    calibration residue, not physics.
 2. The benchmark cannot evaluate cloud-enhancement events, which produce some of
-   the sharpest positive ramps in tropical conditions. Ramp results therefore
-   cover downward and moderate upward ramps only. This is a property of the
-   evaluation target, not of any model tested.
+   the sharpest positive ramps in tropical conditions. Ramp results
+   therefore cover downward and moderate upward ramps only. This is a
+   property of the evaluation target, not of any model tested.
 """
 
 from __future__ import annotations
@@ -73,18 +75,20 @@ __all__ = [
     "save_turbidity",
 ]
 
-#: Fitted turbidity artefact. Committed -- it is a result, not raw data, and the
-#: pipeline must be reproducible without re-running the fit.
+#: Fitted turbidity artefact. Committed -- it is a result, not raw data,
+#: and the pipeline must be reproducible without re-running the fit.
 TURBIDITY_PATH = PROCESSED_DIR / "clearsky" / "linke_turbidity.json"
 
-#: Search bounds for the fit. Linke turbidity is physically ~1.5 (very clean,
-#: high altitude) to ~8 (heavy urban haze); tropical maritime sites sit around
-#: 3-5, so these bounds are permissive without being meaningless.
+#: Search bounds for the fit. Linke turbidity is physically ~1.5 (very
+#: clean, high altitude) to ~8 (heavy urban haze); tropical maritime
+#: sites sit around 3-5, so these bounds are permissive without being
+#: meaningless.
 DEFAULT_TURBIDITY_BOUNDS: tuple[float, float] = (1.5, 8.0)
 
-#: Iterations of the detect-then-fit loop. Clear-sky detection needs a clear-sky
-#: reference, which is what is being fitted, so the two are alternated. It
-#: converges in two or three passes; five is a ceiling, not an expectation.
+#: Iterations of the detect-then-fit loop. Clear-sky detection needs a
+#: clear-sky reference, which is what is being fitted, so the two are
+#: alternated. It converges in two or three passes; five is a ceiling,
+#: not an expectation.
 MAX_FIT_ITERATIONS = 5
 
 #: Convergence tolerance on the turbidity value between iterations.
@@ -92,12 +96,12 @@ FIT_TOLERANCE = 0.01
 
 #: Window for Reno-Hansen clear-sky detection, in minutes.
 #:
-#: pvlib defaults to 10 minutes because the algorithm was designed for 1-minute
-#: data, where that is ten samples. On this project's 10-minute grid it would be
-#: a single sample and the algorithm refuses to run. 60 minutes gives six
-#: samples per window, which is the smallest span that still lets the
-#: line-length and variability criteria discriminate a clear hour from a
-#: smoothly-varying overcast one.
+#: pvlib defaults to 10 minutes because the algorithm was designed for
+#: 1-minute data, where that is ten samples. On this project's 10-minute
+#: grid it would be a single sample and the algorithm refuses to run. 60
+#: minutes gives six samples per window, which is the smallest span that
+#: still lets the line-length and variability criteria discriminate a
+#: clear hour from a smoothly-varying overcast one.
 DETECT_WINDOW_MINUTES = 60
 
 
@@ -106,12 +110,15 @@ def _location(site: Site | str):
 
     if isinstance(site, str):
         site = SITES_BY_KEY[site]
-    return pvlib.location.Location(
-        latitude=site.latitude,
-        longitude=site.longitude,
-        altitude=site.elevation,
-        tz="UTC",
-    ), site
+    return (
+        pvlib.location.Location(
+            latitude=site.latitude,
+            longitude=site.longitude,
+            altitude=site.elevation,
+            tz="UTC",
+        ),
+        site,
+    )
 
 
 def clearsky_ghi(
@@ -121,11 +128,12 @@ def clearsky_ghi(
 ) -> pd.Series:
     """Ineichen clear-sky GHI with the site's fitted Linke turbidity.
 
-    Falls back to pvlib's climatology when no fit is available, so a fresh
-    checkout still runs -- but it warns when it does. The fallback is 4.4-7.6%
-    low, which is large enough to move every clear-sky index in the project and
-    small enough to pass unnoticed in a results table, so it must not be silent.
-    Run ``scripts/fit_turbidity.py`` before producing anything reportable.
+    Falls back to pvlib's climatology when no fit is available, so a
+    fresh checkout still runs -- but it warns when it does. The fallback
+    is 4.4-7.6% low, which is large enough to move every clear-sky index
+    in the project and small enough to pass unnoticed in a results
+    table, so it must not be silent. Run ``scripts/fit_turbidity.py``
+    before producing anything reportable.
     """
     location, site_obj = _location(site)
     if turbidity is None:
@@ -157,14 +165,15 @@ def fit_linke_turbidity(
 ) -> dict:
     """Fit one Linke turbidity value to a site's observed clear-sky periods.
 
-    The turbidity that best reproduces measured irradiance on genuinely clear
-    timesteps is what a plant would fit from its own pyranometer history, which
-    is what keeps the calibration inside the DEPLOYABLE story.
+    The turbidity that best reproduces measured irradiance on genuinely
+    clear timesteps is what a plant would fit from its own pyranometer
+    history, which is what keeps the calibration inside the DEPLOYABLE
+    story.
 
-    Clear timesteps are found with :func:`pvlib.clearsky.detect_clearsky`, the
-    Reno-Hansen algorithm. That needs a clear-sky reference, which is the thing
-    being fitted, so detection and fitting alternate until the turbidity stops
-    moving.
+    Clear timesteps are found with
+    :func:`pvlib.clearsky.detect_clearsky`, the Reno-Hansen algorithm.
+    That needs a clear-sky reference, which is the thing being fitted,
+    so detection and fitting alternate until the turbidity stops moving.
 
     Parameters
     ----------
@@ -172,24 +181,28 @@ def fit_linke_turbidity(
         Observed GHI, UTC-indexed on a uniform grid, spanning ``years``.
     site : Site or str
     years : tuple of int
-        Restricted to the training years. Fitting on all five would let the
-        clear-sky envelope -- and therefore every clear-sky index in the
-        project -- carry information from the test year.
+        Restricted to the training years. Fitting on all five would let
+        the clear-sky envelope -- and therefore every clear-sky index in
+        the project -- carry information from the test year.
 
     Returns
     -------
     dict
-        ``turbidity``, ``rmse``, ``n_clear``, ``iterations``, ``converged``,
-        and the default it is replacing, for the record.
+        ``turbidity``, ``rmse``, ``n_clear``, ``iterations``,
+        ``converged``, and the default it is replacing, for the record.
     """
     import pvlib
     from scipy.optimize import minimize_scalar
 
     location, site_obj = _location(site)
 
-    mask = np.isin(np.asarray(ghi.index.year, dtype=int), np.asarray(years, dtype=int))
+    mask = np.isin(
+        np.asarray(ghi.index.year, dtype=int), np.asarray(years, dtype=int)
+    )
     if not mask.any():
-        raise ValueError(f"{site_obj.key}: no rows in fit years {tuple(years)}")
+        raise ValueError(
+            f"{site_obj.key}: no rows in fit years {tuple(years)}"
+        )
     observed = ghi.loc[mask].astype(float)
     index = pd.DatetimeIndex(observed.index)
 
@@ -216,8 +229,8 @@ def fit_linke_turbidity(
         )
 
         if int(detected.sum()) < 100:
-            # Too few clear samples to fit against. Keep the previous estimate
-            # rather than fitting to noise.
+            # Too few clear samples to fit against. Keep the previous
+            # estimate rather than fitting to noise.
             break
 
         clear_index = index[detected.to_numpy()]
@@ -233,7 +246,13 @@ def fit_linke_turbidity(
         updated = float(result.x)
 
         if progress is not None:
-            progress(site_obj.key, iteration, updated, int(detected.sum()), rmse_at(updated))
+            progress(
+                site_obj.key,
+                iteration,
+                updated,
+                int(detected.sum()),
+                rmse_at(updated),
+            )
 
         if abs(updated - turbidity) < FIT_TOLERANCE:
             turbidity = updated
@@ -244,11 +263,18 @@ def fit_linke_turbidity(
     reference = location.get_clearsky(
         index, model="ineichen", linke_turbidity=turbidity
     )["ghi"]
-    clear = detected.to_numpy() if detected is not None else np.zeros(len(index), bool)
+    clear = (
+        detected.to_numpy()
+        if detected is not None
+        else np.zeros(len(index), bool)
+    )
     rmse = (
         float(
             np.sqrt(
-                np.mean((reference.to_numpy()[clear] - observed.to_numpy()[clear]) ** 2)
+                np.mean(
+                    (reference.to_numpy()[clear] - observed.to_numpy()[clear])
+                    ** 2
+                )
             )
         )
         if clear.any()
@@ -271,23 +297,27 @@ def fit_linke_turbidity(
 def _load_turbidity_cached(path_str: str) -> tuple[tuple[str, float], ...]:
     """Read and cache the artefact.
 
-    ``solar_geometry`` calls this for every horizon, track and target in the
-    grid -- several hundred times per run -- and the file never changes during
-    one. Returned as a tuple of pairs because ``lru_cache`` requires a hashable
-    return value that a caller cannot mutate into the cache.
+    ``solar_geometry`` calls this for every horizon, track and target in
+    the grid -- several hundred times per run -- and the file never
+    changes during one. Returned as a tuple of pairs because
+    ``lru_cache`` requires a hashable return value that a caller cannot
+    mutate into the cache.
     """
     path = Path(path_str)
     if not path.exists():
         return ()
     raw = json.loads(path.read_text(encoding="utf-8"))
-    return tuple((site, float(entry["turbidity"])) for site, entry in sorted(raw.items()))
+    return tuple(
+        (site, float(entry["turbidity"]))
+        for site, entry in sorted(raw.items())
+    )
 
 
 def load_turbidity(path: str | Path | None = None) -> dict[str, float]:
     """Fitted turbidity per site, or an empty dict if the fit has not been run.
 
-    Call :func:`clear_turbidity_cache` after re-running the fit within a live
-    session, otherwise the previous values are reused.
+    Call :func:`clear_turbidity_cache` after re-running the fit within a
+    live session, otherwise the previous values are reused.
     """
     path = TURBIDITY_PATH if path is None else Path(path)
     return dict(_load_turbidity_cached(str(path)))
@@ -298,7 +328,9 @@ def clear_turbidity_cache() -> None:
     _load_turbidity_cached.cache_clear()
 
 
-def save_turbidity(results: dict[str, dict], path: str | Path | None = None) -> Path:
+def save_turbidity(
+    results: dict[str, dict], path: str | Path | None = None
+) -> Path:
     """Write the fit artefact, keys sorted so the file is byte-stable."""
     path = Path(TURBIDITY_PATH if path is None else path)
     path.parent.mkdir(parents=True, exist_ok=True)

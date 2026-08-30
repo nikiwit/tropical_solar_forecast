@@ -63,8 +63,10 @@ class TestCalendarFeatures:
     def test_cyclical_encoding_wraps(self):
         """23:50 and 00:00 must be adjacent, not maximally distant."""
         idx = pd.DatetimeIndex(
-            [pd.Timestamp("2020-01-01 23:50", tz="UTC"),
-             pd.Timestamp("2020-01-02 00:00", tz="UTC")]
+            [
+                pd.Timestamp("2020-01-01 23:50", tz="UTC"),
+                pd.Timestamp("2020-01-02 00:00", tz="UTC"),
+            ]
         )
         out = C.calendar_features(idx)
         gap = np.hypot(
@@ -75,8 +77,10 @@ class TestCalendarFeatures:
 
     def test_midnight_and_noon_are_opposite(self):
         idx = pd.DatetimeIndex(
-            [pd.Timestamp("2020-01-01 00:00", tz="UTC"),
-             pd.Timestamp("2020-01-01 12:00", tz="UTC")]
+            [
+                pd.Timestamp("2020-01-01 00:00", tz="UTC"),
+                pd.Timestamp("2020-01-01 12:00", tz="UTC"),
+            ]
         )
         out = C.calendar_features(idx)
         assert out["hour_cos"].iloc[0] == pytest.approx(1.0)
@@ -150,14 +154,19 @@ class TestBuildKnownFuture:
         idx = _index()
         bad = _era5(idx).drop(columns=["era5_cloud_cover"])
         with pytest.raises(ValueError, match="missing required columns"):
-            C.build_known_future(idx, "kuala_lumpur", track="perfect", era5=bad)
+            C.build_known_future(
+                idx, "kuala_lumpur", track="perfect", era5=bad
+            )
 
     def test_perfect_passes_era5_through_unmodified(self):
         idx = _index()
         era5 = _era5(idx)
-        out = C.build_known_future(idx, "kuala_lumpur", track="perfect", era5=era5)
+        out = C.build_known_future(
+            idx, "kuala_lumpur", track="perfect", era5=era5
+        )
         np.testing.assert_allclose(
-            out["era5_cloud_cover"].to_numpy(), era5["era5_cloud_cover"].to_numpy()
+            out["era5_cloud_cover"].to_numpy(),
+            era5["era5_cloud_cover"].to_numpy(),
         )
 
     def test_realistic_actually_differs_from_perfect(self):
@@ -169,8 +178,12 @@ class TestBuildKnownFuture:
             idx, "kuala_lumpur", track="perfect", era5=era5
         )
         realistic = C.build_known_future(
-            idx, "kuala_lumpur", track="realistic", era5=era5,
-            lead_hours=lead, rng=np.random.default_rng(0),
+            idx,
+            "kuala_lumpur",
+            track="realistic",
+            era5=era5,
+            lead_hours=lead,
+            rng=np.random.default_rng(0),
         )
         assert not np.allclose(
             perfect["era5_cloud_cover"].to_numpy(),
@@ -180,15 +193,21 @@ class TestBuildKnownFuture:
     def test_column_order_stable_across_calls(self):
         idx = _index()
         era5 = _era5(idx)
-        a = C.build_known_future(idx, "kuala_lumpur", track="perfect", era5=era5)
-        b = C.build_known_future(idx, "kuala_lumpur", track="perfect", era5=era5)
+        a = C.build_known_future(
+            idx, "kuala_lumpur", track="perfect", era5=era5
+        )
+        b = C.build_known_future(
+            idx, "kuala_lumpur", track="perfect", era5=era5
+        )
         assert list(a.columns) == list(b.columns)
 
 
 class TestDegradation:
     def test_error_grows_with_lead_time(self):
         model = C.PROVISIONAL_ERROR_MODELS["era5_cloud_cover"]
-        assert model.sigma_at(1.0) < model.sigma_at(24.0) < model.sigma_at(48.0)
+        assert (
+            model.sigma_at(1.0) < model.sigma_at(24.0) < model.sigma_at(48.0)
+        )
 
     def test_error_saturates(self):
         """Forecast error saturates at climatological spread, not unbounded."""
@@ -198,7 +217,9 @@ class TestDegradation:
     def test_cloud_cover_stays_in_physical_bounds(self):
         model = C.PROVISIONAL_ERROR_MODELS["era5_cloud_cover"]
         rng = np.random.default_rng(1)
-        out = C.degrade(np.full(5000, 0.95), model, np.full(5000, 48.0), rng=rng)
+        out = C.degrade(
+            np.full(5000, 0.95), model, np.full(5000, 48.0), rng=rng
+        )
         assert out.min() >= 0.0 and out.max() <= 1.0
 
     def test_precipitation_never_negative(self):
@@ -211,7 +232,9 @@ class TestDegradation:
         """Real forecast errors persist. White noise would let a model average
         the error away across the window and understate the damage."""
         rng = np.random.default_rng(3)
-        correlated = C._correlated_noise(20_000, correlation_steps=36.0, rng=rng)
+        correlated = C._correlated_noise(
+            20_000, correlation_steps=36.0, rng=rng
+        )
         white = C._correlated_noise(20_000, correlation_steps=1.0, rng=rng)
 
         lag1_corr = np.corrcoef(correlated[:-1], correlated[1:])[0, 1]
@@ -237,8 +260,12 @@ class TestDegradation:
     def test_longer_leads_produce_larger_spread(self):
         model = C.PROVISIONAL_ERROR_MODELS["era5_temp_c"]
         rng = np.random.default_rng(5)
-        near = C.degrade(np.full(20_000, 28.0), model, np.full(20_000, 1.0), rng=rng)
-        far = C.degrade(np.full(20_000, 28.0), model, np.full(20_000, 48.0), rng=rng)
+        near = C.degrade(
+            np.full(20_000, 28.0), model, np.full(20_000, 1.0), rng=rng
+        )
+        far = C.degrade(
+            np.full(20_000, 28.0), model, np.full(20_000, 48.0), rng=rng
+        )
         assert far.std() > near.std()
 
 

@@ -25,27 +25,42 @@ if not EMAIL:
 BASE_URL = f"https://developer.nrel.gov/api/nsrdb/v2/solar/himawari-download.csv?api_key={API_KEY}"
 
 SITES = {
-    "kuala_lumpur":   (3.139,  101.687),
-    "penang":         (5.414,  100.330),
-    "kota_kinabalu":  (5.980,  116.073),
-    "ho_chi_minh":    (10.823, 106.630),
-    "bangkok":        (13.754, 100.501),
-    "jakarta":        (-6.208, 106.846),
-    "manila":         (14.599, 120.984),
+    "kuala_lumpur": (3.139, 101.687),
+    "penang": (5.414, 100.330),
+    "kota_kinabalu": (5.980, 116.073),
+    "ho_chi_minh": (10.823, 106.630),
+    "bangkok": (13.754, 100.501),
+    "jakarta": (-6.208, 106.846),
+    "manila": (14.599, 120.984),
 }
 
 YEARS = [2016, 2017, 2018, 2019, 2020]
 
-ATTRIBUTES = ",".join([
-    "ghi", "dni", "dhi",
-    "clearsky_ghi", "clearsky_dni", "clearsky_dhi",
-    "air_temperature", "dew_point", "relative_humidity",
-    "surface_pressure", "wind_speed", "wind_direction",
-    "total_precipitable_water", "surface_albedo",
-    "cloud_type", "fill_flag",
-    "solar_zenith_angle", "aod", "alpha",
-    "ozone", "asymmetry",
-])
+ATTRIBUTES = ",".join(
+    [
+        "ghi",
+        "dni",
+        "dhi",
+        "clearsky_ghi",
+        "clearsky_dni",
+        "clearsky_dhi",
+        "air_temperature",
+        "dew_point",
+        "relative_humidity",
+        "surface_pressure",
+        "wind_speed",
+        "wind_direction",
+        "total_precipitable_water",
+        "surface_albedo",
+        "cloud_type",
+        "fill_flag",
+        "solar_zenith_angle",
+        "aod",
+        "alpha",
+        "ozone",
+        "asymmetry",
+    ]
+)
 
 HEADERS = {
     "content-type": "application/x-www-form-urlencoded",
@@ -54,6 +69,7 @@ HEADERS = {
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "data", "nsrdb")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 
 def download_site_year(site_name, lat, lon, year):
     """Download a single site-year combination."""

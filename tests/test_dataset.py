@@ -24,7 +24,6 @@ from solarfc.features import build_observed_past
 
 from test_features import _era5, _nsrdb
 
-
 HORIZON = 6
 
 
@@ -42,7 +41,11 @@ def features(raw):
 
 def _build(features, era5, **kwargs):
     options = dict(
-        track="perfect", feature_set="full", target="ghi", era5=era5, drop_night=False
+        track="perfect",
+        feature_set="full",
+        target="ghi",
+        era5=era5,
+        drop_night=False,
     )
     options.update(kwargs)
     return D.build_supervised(features, "kuala_lumpur", HORIZON, **options)
@@ -53,14 +56,18 @@ class TestAlignment:
         _, era5 = raw
         built = _build(features, era5)
         stamp = built.X.index[50]
-        expected = features["ghi"].loc[stamp + pd.Timedelta(minutes=10 * HORIZON)]
+        expected = features["ghi"].loc[
+            stamp + pd.Timedelta(minutes=10 * HORIZON)
+        ]
         assert built.y.loc[stamp] == pytest.approx(expected)
 
     def test_csi_target_is_the_future_index(self, features, raw):
         _, era5 = raw
         built = _build(features, era5, target="csi")
         stamp = built.X.index[50]
-        expected = features["csi"].loc[stamp + pd.Timedelta(minutes=10 * HORIZON)]
+        expected = features["csi"].loc[
+            stamp + pd.Timedelta(minutes=10 * HORIZON)
+        ]
         assert built.y.loc[stamp] == pytest.approx(expected)
 
     def test_known_future_is_read_at_the_target_time(self, features, raw):
@@ -88,7 +95,9 @@ class TestAlignment:
         _, era5 = raw
         built = _build(features, era5)
         stamp = built.X.index[50]
-        assert built.X.loc[stamp, "ghi"] == pytest.approx(features["ghi"].loc[stamp])
+        assert built.X.loc[stamp, "ghi"] == pytest.approx(
+            features["ghi"].loc[stamp]
+        )
 
 
 class TestLeakage:
@@ -195,7 +204,9 @@ class TestNightHandling:
         whole reason CSI is carried across the night."""
         _, era5 = raw
         built = _build(features, era5, drop_night=True)
-        origin_clearsky = features["clearsky_ghi_ineichen"].reindex(built.X.index)
+        origin_clearsky = features["clearsky_ghi_ineichen"].reindex(
+            built.X.index
+        )
         assert (origin_clearsky.to_numpy() <= 20.0).any()
 
     def test_keeping_night_yields_more_rows(self, features, raw):
@@ -216,7 +227,9 @@ class TestFeatureSets:
         """A plant can subscribe to a weather forecast; it cannot own a
         satellite. NWP fields therefore stay in the deployable set."""
         _, era5 = raw
-        built = _build(features, era5, feature_set="deployable", track="realistic")
+        built = _build(
+            features, era5, feature_set="deployable", track="realistic"
+        )
         assert len(D.nwp_columns_in(built.X)) == len(NWP_FEATURES)
 
 
@@ -247,7 +260,9 @@ class TestToGhi:
 
         _, era5 = raw
         built = _build(features, era5, target="csi", drop_night=True)
-        recovered = D.to_ghi(built.y.to_numpy(), built.clearsky_ghi.to_numpy(), "csi")
+        recovered = D.to_ghi(
+            built.y.to_numpy(), built.clearsky_ghi.to_numpy(), "csi"
+        )
         unclipped = built.y.to_numpy() < CSI_CLIP_MAX
         assert unclipped.any()
         np.testing.assert_allclose(
@@ -260,10 +275,14 @@ class TestToGhi:
 
         _, era5 = raw
         built = _build(features, era5, target="csi", drop_night=True)
-        recovered = D.to_ghi(built.y.to_numpy(), built.clearsky_ghi.to_numpy(), "csi")
+        recovered = D.to_ghi(
+            built.y.to_numpy(), built.clearsky_ghi.to_numpy(), "csi"
+        )
         clipped = built.y.to_numpy() >= CSI_CLIP_MAX
         if clipped.any():
-            assert (recovered[clipped] <= built.ghi.to_numpy()[clipped] + 1e-9).all()
+            assert (
+                recovered[clipped] <= built.ghi.to_numpy()[clipped] + 1e-9
+            ).all()
 
     def test_shape_mismatch_raises(self):
         with pytest.raises(ValueError, match="shape mismatch"):
@@ -315,7 +334,9 @@ class TestSupervisedSet:
 
     def test_attrs_record_the_configuration(self, features, raw):
         _, era5 = raw
-        built = _build(features, era5, track="realistic", feature_set="deployable")
+        built = _build(
+            features, era5, track="realistic", feature_set="deployable"
+        )
         assert built.X.attrs["track"] == "realistic"
         assert built.X.attrs["feature_set"] == "deployable"
         assert built.X.attrs["lead_hours"] == pytest.approx(1.0)

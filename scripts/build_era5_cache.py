@@ -1,16 +1,16 @@
 """Extract, upsample and cache ERA5 site series to Parquet.
 
-Reading the 60 monthly ERA5 archives is slow — each is a ~100 MB zip holding
-two NetCDF members on a 97x97 grid. Only seven gridpoints are ever used, so
-this runs once and caches the result.
+Reading the 60 monthly ERA5 archives is slow — each is a ~100 MB zip
+holding two NetCDF members on a 97x97 grid. Only seven gridpoints are
+ever used, so this runs once and caches the result.
 
-The loop is deliberately month-outer / site-inner: reading each archive once
-and extracting all seven sites costs 60 file reads, where a site-outer loop
-would cost 420.
+The loop is deliberately month-outer / site-inner: reading each archive
+once and extracting all seven sites costs 60 file reads, where a
+site-outer loop would cost 420.
 
 Run:
-    python scripts/build_era5_cache.py
-    python scripts/build_era5_cache.py --years 2016 2017 --sites kuala_lumpur
+    python scripts/build_era5_cache.py python
+    scripts/build_era5_cache.py --years 2016 2017 --sites kuala_lumpur
 
 Output:
     data/processed/era5/{site}_10min.parquet   upsampled, derived features
@@ -29,7 +29,13 @@ from pathlib import Path
 import pandas as pd
 
 from solarfc import era5
-from solarfc.config import ALL_YEARS, ERA5_DIR, PROCESSED_DIR, SITE_KEYS, SITES_BY_KEY
+from solarfc.config import (
+    ALL_YEARS,
+    ERA5_DIR,
+    PROCESSED_DIR,
+    SITE_KEYS,
+    SITES_BY_KEY,
+)
 
 OUT_DIR = PROCESSED_DIR / "era5"
 
@@ -69,20 +75,22 @@ def main(argv=None) -> int:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    months = [
-        (y, m) for y in sorted(args.years) for m in sorted(args.months)
-    ]
+    months = [(y, m) for y in sorted(args.years) for m in sorted(args.months)]
     missing = [
         f"era5_sea_{y}_{m:02d}.nc"
         for y, m in months
         if not (args.data_dir / f"era5_sea_{y}_{m:02d}.nc").exists()
     ]
     if missing:
-        print(f"missing {len(missing)} ERA5 files, first few: {missing[:5]}",
-              file=sys.stderr)
+        print(
+            f"missing {len(missing)} ERA5 files, first few: {missing[:5]}",
+            file=sys.stderr,
+        )
         return 1
 
-    print(f"reading {len(months)} monthly archives for {len(args.sites)} sites")
+    print(
+        f"reading {len(months)} monthly archives for {len(args.sites)} sites"
+    )
     per_site: dict[str, list[pd.DataFrame]] = {s: [] for s in args.sites}
     attrs: dict[str, dict] = {}
 
@@ -113,11 +121,14 @@ def main(argv=None) -> int:
             return 1
 
         hourly.attrs.update(attrs[site])
-        ten_min = era5.upsample_to_10min(hourly, cloud_method=args.cloud_method)
+        ten_min = era5.upsample_to_10min(
+            hourly, cloud_method=args.cloud_method
+        )
         derived = era5.derive_features(ten_min)
 
-        # Keep only the model-facing columns; the raw ERA5 names are redundant
-        # once units are aligned, and carrying both invites using the wrong one.
+        # Keep only the model-facing columns; the raw ERA5 names are
+        # redundant once units are aligned, and carrying both invites
+        # using the wrong one.
         keep = [c for c in derived.columns if c.startswith("era5_")]
         out = derived[keep]
 

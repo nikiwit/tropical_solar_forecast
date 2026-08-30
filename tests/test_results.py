@@ -1,4 +1,4 @@
-"""The results schema every phase writes into.
+"""The results schema every model writes into.
 
 The properties that matter are consistency ones. Every model must be scored on
 the same samples, the aggregate must agree with its own breakdown, and a row
@@ -15,7 +15,9 @@ from solarfc import results as R
 
 
 def _index(days=40):
-    return pd.date_range("2020-01-01", periods=days * 144, freq="10min", tz="UTC")
+    return pd.date_range(
+        "2020-01-01", periods=days * 144, freq="10min", tz="UTC"
+    )
 
 
 def _series(index, seed=0):
@@ -155,7 +157,9 @@ class TestRunMeta:
     def test_serialises(self, tmp_path):
         import json
 
-        meta = R.RunMeta(run_id="r", model="m", hyperparameters={"max_depth": 8})
+        meta = R.RunMeta(
+            run_id="r", model="m", hyperparameters={"max_depth": 8}
+        )
         path = meta.to_json(tmp_path / "run.json")
         loaded = json.loads(path.read_text())
         assert loaded["hyperparameters"]["max_depth"] == 8

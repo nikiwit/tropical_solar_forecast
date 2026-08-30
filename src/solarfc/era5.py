@@ -1,10 +1,11 @@
 """ERA5 reanalysis loading, site extraction and upsampling to the NSRDB grid.
 
-ERA5 provides the NWP-side features: cloud cover, temperature, humidity, wind,
-precipitation. It is hourly at 0.25 degrees; NSRDB is 10-minute at 2 km. This
-module bridges that gap.
+ERA5 provides the NWP-side features: cloud cover, temperature, humidity,
+wind, precipitation. It is hourly at 0.25 degrees; NSRDB is 10-minute at
+2 km. This module bridges that gap.
 
-Three things here are easy to get wrong, and all three are handled explicitly.
+Three things here are easy to get wrong, and all three are handled
+explicitly.
 
 1. The files are ZIP archives, not NetCDF
 --------------------------------------------------------------------------
@@ -61,11 +62,20 @@ __all__ = [
     "derive_features",
 ]
 
-#: Point-in-time fields. Linear interpolation is the correct reconstruction.
-INSTANT_VARS: tuple[str, ...] = ("tcc", "t2m", "d2m", "msl", "u10", "v10", "tcwv")
+#: Point-in-time fields. Linear interpolation is the correct
+#: reconstruction.
+INSTANT_VARS: tuple[str, ...] = (
+    "tcc",
+    "t2m",
+    "d2m",
+    "msl",
+    "u10",
+    "v10",
+    "tcwv",
+)
 
-#: Fields accumulated over the hour ENDING at valid_time. Converted to a mean
-#: rate and held constant across the window they describe.
+#: Fields accumulated over the hour ENDING at valid_time. Converted to a
+#: mean rate and held constant across the window they describe.
 ACCUM_VARS: tuple[str, ...] = ("tp", "ssrd")
 
 _ZIP_MEMBERS = (
@@ -77,9 +87,9 @@ _ZIP_MEMBERS = (
 def open_month(path: str | Path) -> xr.Dataset:
     """Open one monthly ERA5 file, transparently handling the zip container.
 
-    Returns a single dataset with both instantaneous and accumulated variables
-    merged on ``valid_time``. Plain NetCDF files are also accepted, so this
-    keeps working if CDS reverts its delivery format.
+    Returns a single dataset with both instantaneous and accumulated
+    variables merged on ``valid_time``. Plain NetCDF files are also
+    accepted, so this keeps working if CDS reverts its delivery format.
     """
     path = Path(path)
     if not path.exists():
@@ -94,8 +104,8 @@ def open_month(path: str | Path) -> xr.Dataset:
         if not members:
             raise ValueError(f"{path.name} is a zip with no NetCDF members")
         for name in members:
-            # Read into memory: these members are ~100 MB and xarray cannot
-            # lazily seek inside a zip anyway.
+            # Read into memory: these members are ~100 MB and xarray
+            # cannot lazily seek inside a zip anyway.
             parts.append(xr.open_dataset(z.read(name)))
 
     merged = xr.merge(parts, compat="override", join="exact")
@@ -111,23 +121,31 @@ def open_month(path: str | Path) -> xr.Dataset:
 def extract_site(ds: xr.Dataset, site: Site | str) -> pd.DataFrame:
     """Nearest-gridpoint time series for one site, as a UTC-indexed frame.
 
-    ERA5's 0.25-degree grid puts the nearest point up to ~20 km from the target
-    coordinate. That offset is recorded in the frame's ``attrs`` so the
-    methodology chapter can quote it rather than estimate it.
+    ERA5's 0.25-degree grid puts the nearest point up to ~20 km from the
+    target coordinate. That offset is recorded in the frame's ``attrs``
+    so the methodology chapter can quote it rather than estimate it.
     """
     if isinstance(site, str):
         site = SITES_BY_KEY[site]
 
-    point = ds.sel(latitude=site.latitude, longitude=site.longitude, method="nearest")
+    point = ds.sel(
+        latitude=site.latitude, longitude=site.longitude, method="nearest"
+    )
 
-    available = [v for v in (*INSTANT_VARS, *ACCUM_VARS) if v in point.data_vars]
+    available = [
+        v for v in (*INSTANT_VARS, *ACCUM_VARS) if v in point.data_vars
+    ]
     df = point[available].to_dataframe()
 
     # to_dataframe carries the scalar lat/lon coords through as columns.
-    df = df.drop(columns=[c for c in ("latitude", "longitude") if c in df.columns])
+    df = df.drop(
+        columns=[c for c in ("latitude", "longitude") if c in df.columns]
+    )
 
     if "valid_time" in df.index.names:
-        df.index = pd.DatetimeIndex(df.index.get_level_values("valid_time"), tz="UTC")
+        df.index = pd.DatetimeIndex(
+            df.index.get_level_values("valid_time"), tz="UTC"
+        )
     else:
         df.index = pd.DatetimeIndex(df.index, tz="UTC")
     df.index.name = "timestamp"
@@ -140,7 +158,9 @@ def extract_site(ds: xr.Dataset, site: Site | str) -> pd.DataFrame:
         site_lon=site.longitude,
         grid_lat=grid_lat,
         grid_lon=grid_lon,
-        offset_km=_haversine_km(site.latitude, site.longitude, grid_lat, grid_lon),
+        offset_km=_haversine_km(
+            site.latitude, site.longitude, grid_lat, grid_lon
+        ),
     )
     return df.sort_index()
 
@@ -154,12 +174,14 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return float(2 * r * np.arcsin(np.sqrt(a)))
 
 
-def load_site_era5(site: Site | str, years, months=range(1, 13), data_dir=None):
+def load_site_era5(
+    site: Site | str, years, months=range(1, 13), data_dir=None
+):
     """Load and concatenate monthly ERA5 files for one site.
 
-    Reads each month, extracts the nearest gridpoint, then discards the full
-    grid — holding 60 months of 97x97x744 in memory is unnecessary when only
-    seven points are ever used.
+    Reads each month, extracts the nearest gridpoint, then discards the
+    full grid — holding 60 months of 97x97x744 in memory is unnecessary
+    when only seven points are ever used.
     """
     base = ERA5_DIR if data_dir is None else Path(data_dir)
     key = site if isinstance(site, str) else site.key
@@ -202,53 +224,68 @@ def upsample_to_10min(
     cloud_method : {"linear", "ffill"}
         How to upsample total cloud cover.
 
-        ``"linear"`` (default) treats ``tcc`` as what ERA5 actually stores — an
-        instantaneous field — and interpolates between samples. ``"ffill"``
-        holds each hourly value constant, which avoids inventing intermediate
-        values but introduces a step discontinuity on the hour that a model can
-        learn to key on.
+        ``"linear"`` (default) treats ``tcc`` as what ERA5 actually
+        stores — an instantaneous field — and interpolates between
+        samples. ``"ffill"`` holds each hourly value constant, which
+        avoids inventing intermediate values but introduces a step
+        discontinuity on the hour that a model can learn to key on.
 
-        The plan originally specified forward-fill on the grounds that cloud
-        cover is stepwise. That reasoning describes real cloud, not the ERA5
-        field, which is a point sample of a smooth analysis. Linear is the
-        correct reconstruction *of the stored field*; neither option recovers
-        genuine sub-hourly cloud dynamics, and that limitation belongs in the
-        thesis rather than in a choice of fill rule.
+        The plan originally specified forward-fill on the grounds that
+        cloud cover is stepwise. That reasoning describes real cloud,
+        not the ERA5 field, which is a point sample of a smooth
+        analysis. Linear is the correct reconstruction *of the stored
+        field*; neither option recovers genuine sub-hourly cloud
+        dynamics, and that limitation belongs in the thesis rather than
+        in a choice of fill rule.
 
     Returns
     -------
     DataFrame
-        Reindexed to ``step_minutes``. Accumulated variables are returned as
-        mean rates over their window, renamed with a ``_rate`` suffix to make
-        the unit change impossible to miss downstream.
+        Reindexed to ``step_minutes``. Accumulated variables are
+        returned as mean rates over their window, renamed with a
+        ``_rate`` suffix to make the unit change impossible to miss
+        downstream.
     """
     if cloud_method not in ("linear", "ffill"):
-        raise ValueError(f"cloud_method must be 'linear' or 'ffill', got {cloud_method!r}")
+        raise ValueError(
+            f"cloud_method must be 'linear' or 'ffill', got {cloud_method!r}"
+        )
     if not isinstance(df.index, pd.DatetimeIndex):
-        raise TypeError(f"expected a DatetimeIndex, got {type(df.index).__name__}")
+        raise TypeError(
+            f"expected a DatetimeIndex, got {type(df.index).__name__}"
+        )
 
     target = pd.date_range(
-        df.index.min(), df.index.max(), freq=f"{step_minutes}min", tz=df.index.tz
+        df.index.min(),
+        df.index.max(),
+        freq=f"{step_minutes}min",
+        tz=df.index.tz,
     )
     out = pd.DataFrame(index=target)
     out.index.name = "timestamp"
 
-    # --- Instantaneous fields: linear interpolation between point samples ----
+    # --- Instantaneous fields: linear interpolation between point
+    # samples ----
     for var in INSTANT_VARS:
         if var not in df.columns:
             continue
         if var == "tcc" and cloud_method == "ffill":
             out[var] = df[var].reindex(target, method="ffill")
         else:
-            out[var] = df[var].reindex(df.index.union(target)).interpolate(
-                method="time"
-            ).reindex(target)
+            out[var] = (
+                df[var]
+                .reindex(df.index.union(target))
+                .interpolate(method="time")
+                .reindex(target)
+            )
 
-    # --- Accumulated fields: shift back, convert to rate, hold constant ------
+    # --- Accumulated fields: shift back, convert to rate, hold constant
+    # ------
     #
-    # The value stamped at T covers (T-1h, T]. Shifting the series back by one
-    # hour re-stamps it onto the START of the window it describes, after which
-    # a forward fill assigns it to exactly the sub-steps it actually covers.
+    # The value stamped at T covers (T-1h, T]. Shifting the series back
+    # by one hour re-stamps it onto the START of the window it
+    # describes, after which a forward fill assigns it to exactly the
+    # sub-steps it actually covers.
     seconds_per_hour = 3600.0
     for var in ACCUM_VARS:
         if var not in df.columns:
@@ -266,9 +303,10 @@ def upsample_to_10min(
 def derive_features(df: pd.DataFrame) -> pd.DataFrame:
     """Convert ERA5 units and derive the model-facing feature set.
 
-    ERA5 ships SI units that do not match NSRDB's conventions, and it provides
-    no relative humidity field at all. Aligning units here means the feature
-    pipeline never has to care which dataset a column came from.
+    ERA5 ships SI units that do not match NSRDB's conventions, and it
+    provides no relative humidity field at all. Aligning units here
+    means the feature pipeline never has to care which dataset a column
+    came from.
     """
     out = df.copy()
 
@@ -291,8 +329,8 @@ def derive_features(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     if "tp_rate" in out:
-        # m/s -> mm/h. This is the rainfall proxy that conditions the Monsoon
-        # Gate (Module A), so its units need to be unambiguous.
+        # m/s -> mm/h. This is the rainfall proxy that conditions the
+        # Monsoon Gate (Module A), so its units need to be unambiguous.
         out["era5_precip_mm_h"] = out["tp_rate"] * 1000.0 * 3600.0
     if "ssrd_rate" in out:
         out["era5_ssrd_wm2"] = out["ssrd_rate"]
@@ -308,10 +346,11 @@ def derive_features(df: pd.DataFrame) -> pd.DataFrame:
 def _relative_humidity(temp_c, dewpoint_c):
     """RH (%) from temperature and dewpoint via the Magnus-Tetens formula.
 
-    ERA5 has no RH field, but humidity is a direct input to the Monsoon Gate
-    and a well-established predictor of tropical diffuse fraction, so it is
-    derived rather than dropped. Coefficients are the standard Magnus values
-    over water, valid across the temperature range of every site here.
+    ERA5 has no RH field, but humidity is a direct input to the Monsoon
+    Gate and a well-established predictor of tropical diffuse fraction,
+    so it is derived rather than dropped. Coefficients are the standard
+    Magnus values over water, valid across the temperature range of
+    every site here.
     """
     a, b = 17.625, 243.04
     gamma_d = (a * dewpoint_c) / (b + dewpoint_c)

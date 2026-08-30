@@ -7,15 +7,15 @@ taking horizon as a feature -- shares statistical strength across horizons but
 forces one set of hyperparameters and one feature importance ranking onto
 problems that are genuinely different: a 20-minute forecast is dominated by
 irradiance persistence, a 36-hour forecast almost entirely by the NWP track.
-Keeping them separate is also what makes the per-horizon SHAP analysis in
-Phase 4 interpretable.
+Keeping them separate is also what makes the per-horizon SHAP analysis
+interpretable.
 
 No standardisation
 ------------------
 Trees split on order statistics, so a monotone rescaling of a feature cannot
 change the tree they build. :mod:`solarfc.scaling` is therefore not applied
-here. It is not unused -- the recurrent and Transformer families in Phases 3-4
-need it, and its serialised form is what SolarInfer's ``FeaturePreprocessor``
+here. It is not unused -- the recurrent and Transformer families need it, and
+its serialised form is what SolarInfer's ``FeaturePreprocessor``
 loads for the 4 d.p. equivalence check. Applying it to trees would only add a
 step for the C++ port to reproduce for no numerical effect.
 
@@ -47,10 +47,11 @@ ALGORITHMS: tuple[str, ...] = ("xgboost", "lightgbm")
 
 #: Columns that are codes rather than quantities.
 #:
-#: NSRDB's cloud type is a nominal classification (clear, water, ice, cirrus,
-#: overlapping, ...). Left as an integer a tree would split it as if type 7 sat
-#: between 6 and 8, which is meaningless. Both libraries support native
-#: categorical handling, which partitions the categories instead.
+#: NSRDB's cloud type is a nominal classification (clear, water, ice,
+#: cirrus, overlapping, ...). Left as an integer a tree would split it
+#: as if type 7 sat between 6 and 8, which is meaningless. Both
+#: libraries support native categorical handling, which partitions the
+#: categories instead.
 CATEGORICAL_COLUMNS: tuple[str, ...] = ("cloud_type",)
 
 
@@ -58,10 +59,11 @@ CATEGORICAL_COLUMNS: tuple[str, ...] = ("cloud_type",)
 class GBDTConfig:
     """Hyperparameters, recorded with every result row.
 
-    The defaults are deliberately middle-of-the-road rather than tuned. Phase 2
-    exists to establish whether a tree model can beat smart persistence at all
-    and to settle the target representation; Optuna tuning arrives in Phase 3
-    once the target is frozen, and tuning before that would mean re-tuning after.
+    The defaults are deliberately middle-of-the-road rather than tuned.
+    This grid exists to establish whether a tree model can beat smart
+    persistence at all and to settle the target representation. Optuna
+    tuning comes once the target is frozen; tuning before that would
+    only mean re-tuning after.
     """
 
     algorithm: str = "xgboost"
@@ -99,10 +101,10 @@ def fit_gbdt(
 ):
     """Fit one model for one horizon on the training split.
 
-    Returns the fitted estimator. ``best_iteration`` is available on it and is
-    worth recording -- if a model consistently stops at the round cap rather
-    than on the validation curve, the cap is the binding constraint and the
-    result understates what the family can do.
+    Returns the fitted estimator. ``best_iteration`` is available on it
+    and is worth recording -- if a model consistently stops at the round
+    cap rather than on the validation curve, the cap is the binding
+    constraint and the result understates what the family can do.
     """
     config = GBDTConfig() if config is None else config
     if config.algorithm not in ALGORITHMS:
@@ -162,7 +164,9 @@ def fit_gbdt(
         X_train,
         train.y.to_numpy(),
         eval_set=[(X_val, validation.y.to_numpy())],
-        callbacks=[lgb.early_stopping(config.early_stopping_rounds, verbose=False)],
+        callbacks=[
+            lgb.early_stopping(config.early_stopping_rounds, verbose=False)
+        ],
     )
     return model
 
@@ -170,9 +174,10 @@ def fit_gbdt(
 def predict_ghi(model, data: SupervisedSet) -> np.ndarray:
     """Predict and convert to W/m^2, whatever representation was trained on.
 
-    Every metric in the project is computed on GHI, so the conversion belongs
-    here rather than in each caller -- a CSI model scored without the rescale
-    would produce numbers between 0 and 2 that look like nothing in particular.
+    Every metric in the project is computed on GHI, so the conversion
+    belongs here rather than in each caller -- a CSI model scored
+    without the rescale would produce numbers between 0 and 2 that look
+    like nothing in particular.
     """
     raw = model.predict(_prepare(data.X))
     return to_ghi(raw, data.clearsky_ghi.to_numpy(), data.target)

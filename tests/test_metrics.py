@@ -118,13 +118,15 @@ class TestProbabilistic:
         assert M.picp(y_true, lower, upper) == pytest.approx(0.5)
 
     def test_picp_boundary_counts_as_covered(self):
-        assert M.picp([100.0, 300.0], [100.0, 100.0], [300.0, 300.0]) == pytest.approx(1.0)
+        assert M.picp(
+            [100.0, 300.0], [100.0, 100.0], [300.0, 300.0]
+        ) == pytest.approx(1.0)
 
     def test_pinaw_normalises_by_observed_range(self):
         y_true = np.array([0.0, 1000.0])
-        assert M.pinaw(y_true, np.array([0.0, 0.0]), np.array([100.0, 100.0])) == (
-            pytest.approx(0.1)
-        )
+        assert M.pinaw(
+            y_true, np.array([0.0, 0.0]), np.array([100.0, 100.0])
+        ) == (pytest.approx(0.1))
 
     def test_reliability_curve_detects_overconfidence(self):
         rng = np.random.default_rng(0)

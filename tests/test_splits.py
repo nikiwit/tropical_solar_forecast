@@ -7,7 +7,12 @@ import pandas as pd
 import pytest
 
 from solarfc import splits as S
-from solarfc.config import NE_MONSOON, SW_MONSOON, INTER_MONSOON_I, INTER_MONSOON_II
+from solarfc.config import (
+    NE_MONSOON,
+    SW_MONSOON,
+    INTER_MONSOON_I,
+    INTER_MONSOON_II,
+)
 
 
 def _index(start="2016-01-01", periods=1000, freq="10min"):
@@ -78,7 +83,9 @@ class TestTransitionWindows:
 class TestSplitAssignment:
     def _frame(self):
         idx = pd.date_range("2016-01-01", "2020-12-31", freq="D", tz="UTC")
-        return pd.DataFrame({"GHI": np.arange(len(idx), dtype=float)}, index=idx)
+        return pd.DataFrame(
+            {"GHI": np.arange(len(idx), dtype=float)}, index=idx
+        )
 
     def test_years_route_to_expected_splits(self):
         out = S.assign_splits(self._frame())
@@ -112,7 +119,11 @@ class TestSplitAssignment:
         manifest = S.write_split_manifest(out, path)
         assert path.exists()
         assert len(manifest["sha256"]) == 64
-        assert {s["split"] for s in manifest["splits"]} == {"train", "val", "test"}
+        assert {s["split"] for s in manifest["splits"]} == {
+            "train",
+            "val",
+            "test",
+        }
 
     def test_manifest_hash_is_deterministic(self, tmp_path):
         out = S.assign_splits(self._frame())

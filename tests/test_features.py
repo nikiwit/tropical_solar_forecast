@@ -21,7 +21,9 @@ from solarfc.config import DAYTIME_CLEARSKY_FLOOR
 
 
 def _index(days=4):
-    return pd.date_range("2020-03-01", periods=days * 144, freq="10min", tz="UTC")
+    return pd.date_range(
+        "2020-03-01", periods=days * 144, freq="10min", tz="UTC"
+    )
 
 
 def _nsrdb(index=None, seed=0):
@@ -85,7 +87,9 @@ def _era5(index):
 @pytest.fixture(scope="module")
 def built():
     nsrdb = _nsrdb()
-    return F.build_observed_past(nsrdb, "kuala_lumpur", era5=_era5(nsrdb.index))
+    return F.build_observed_past(
+        nsrdb, "kuala_lumpur", era5=_era5(nsrdb.index)
+    )
 
 
 class TestDirectionality:
@@ -101,7 +105,9 @@ class TestDirectionality:
         window = 3
         ghi = built["ghi"].to_numpy()
         expected = np.mean([ghi[100 - k] for k in range(window)])
-        assert built["ghi_roll_mean_3"].to_numpy()[100] == pytest.approx(expected)
+        assert built["ghi_roll_mean_3"].to_numpy()[100] == pytest.approx(
+            expected
+        )
 
     def test_perturbing_the_future_leaves_the_past_untouched(self):
         """The decisive leakage test: change tomorrow, yesterday must not move."""
@@ -140,10 +146,16 @@ class TestClearSkyIndexAtNight:
 
     def test_csi_rolling_windows_survive_the_night(self, built):
         """Every one of these was identically NaN before the fix."""
-        for column in ("csi_roll_mean_3", "csi_roll_mean_144", "csi_roll_std_36"):
+        for column in (
+            "csi_roll_mean_3",
+            "csi_roll_mean_144",
+            "csi_roll_std_36",
+        ):
             series = built[column]
             assert series.notna().any(), column
-            assert series.loc[series.first_valid_index() :].notna().all(), column
+            assert (
+                series.loc[series.first_valid_index() :].notna().all()
+            ), column
 
     def test_csi_is_carried_across_the_night(self, built):
         """No NaN after the first observation -- night reuses the last value."""
@@ -162,7 +174,9 @@ class TestClearSkyIndexAtNight:
 
     def test_age_is_zero_when_observed(self, built):
         """Daytime samples are real observations, so their age is zero."""
-        daytime = built["clearsky_ghi_ineichen"].to_numpy() > DAYTIME_CLEARSKY_FLOOR
+        daytime = (
+            built["clearsky_ghi_ineichen"].to_numpy() > DAYTIME_CLEARSKY_FLOOR
+        )
         age = built["csi_age_steps"].to_numpy()
         observed = daytime & np.isfinite(age)
         assert np.nanmax(age[observed]) == 0
@@ -233,7 +247,9 @@ class TestFeatureSets:
 
 class TestWindDecomposition:
     def test_components_recover_the_speed(self, built):
-        speed = np.hypot(built["wind_u"].to_numpy(), built["wind_v"].to_numpy())
+        speed = np.hypot(
+            built["wind_u"].to_numpy(), built["wind_v"].to_numpy()
+        )
         assert speed == pytest.approx(built["wind_speed"].to_numpy())
 
     def test_northerly_wind_has_negative_v(self, built):
@@ -270,7 +286,13 @@ class TestStructure:
 class TestStepsSinceObserved:
     def test_counts_from_the_last_finite_sample(self):
         values = np.array([1.0, np.nan, np.nan, 2.0, np.nan])
-        assert F._steps_since_observed(values).tolist() == [0.0, 1.0, 2.0, 0.0, 1.0]
+        assert F._steps_since_observed(values).tolist() == [
+            0.0,
+            1.0,
+            2.0,
+            0.0,
+            1.0,
+        ]
 
     def test_leading_gap_is_nan(self):
         out = F._steps_since_observed(np.array([np.nan, np.nan, 1.0]))

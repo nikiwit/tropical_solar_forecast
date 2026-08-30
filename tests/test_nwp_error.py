@@ -19,7 +19,9 @@ def _jma(n=2000, seed=0):
     frame = pd.DataFrame(index=idx)
     frame["era5_cloud_cover_lead0h"] = truth
     for lead, sigma in ((24, 0.10), (48, 0.20), (72, 0.30)):
-        frame[f"era5_cloud_cover_lead{lead}h"] = truth + rng.normal(0, sigma, n)
+        frame[f"era5_cloud_cover_lead{lead}h"] = truth + rng.normal(
+            0, sigma, n
+        )
     return frame
 
 
@@ -90,7 +92,9 @@ class TestMeasureError:
         assert stds[0] < stds[1] < stds[2]
 
     def test_reports_sample_count(self):
-        stats = N.measure_error(_jma(n=500), "era5_cloud_cover", 24, mode="drift")
+        stats = N.measure_error(
+            _jma(n=500), "era5_cloud_cover", 24, mode="drift"
+        )
         assert stats.n == 500
 
 
@@ -157,7 +161,9 @@ class TestValidateFit:
 
     def test_bad_fit_is_flagged_not_raised(self):
         """The caller decides what to do about a failure."""
-        _, measured = N.fit_error_model(_jma(), "era5_cloud_cover", mode="drift")
+        _, measured = N.fit_error_model(
+            _jma(), "era5_cloud_cover", mode="drift"
+        )
         wrong = ErrorModel("era5_cloud_cover", 5.0, 0.0, 10.0)
         report = N.validate_fit(wrong, measured)
         assert not report["within_tolerance"].any()
@@ -174,10 +180,15 @@ class TestErrorModelApplication:
     def test_bias_shifts_the_field(self):
         from solarfc.covariates import degrade
 
-        model = ErrorModel("v", sigma_0=0.0, growth_rate=0.0, sigma_max=0.0,
-                           bias_0=-0.2)
-        out = degrade(np.full(100, 0.5), model, np.full(100, 24.0),
-                      rng=np.random.default_rng(0))
+        model = ErrorModel(
+            "v", sigma_0=0.0, growth_rate=0.0, sigma_max=0.0, bias_0=-0.2
+        )
+        out = degrade(
+            np.full(100, 0.5),
+            model,
+            np.full(100, 24.0),
+            rng=np.random.default_rng(0),
+        )
         assert out.mean() == pytest.approx(0.3, abs=1e-9)
 
     def test_bias_grows_with_lead(self):
@@ -189,6 +200,10 @@ class TestErrorModelApplication:
         from solarfc.covariates import degrade
 
         model = ErrorModel("v", 0.0, 0.0, 0.0, bias_0=-5.0, lower_bound=0.0)
-        out = degrade(np.full(50, 0.5), model, np.full(50, 24.0),
-                      rng=np.random.default_rng(0))
+        out = degrade(
+            np.full(50, 0.5),
+            model,
+            np.full(50, 24.0),
+            rng=np.random.default_rng(0),
+        )
         assert out.min() >= 0.0

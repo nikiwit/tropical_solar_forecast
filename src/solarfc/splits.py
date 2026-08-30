@@ -3,11 +3,13 @@
 Two rules govern this module:
 
 1. **Splits are strictly chronological.** Solar time series are autocorrelated
-   over hours; a shuffled split leaks near-identical neighbouring samples into
-   the test set and reports a number that cannot be reproduced operationally.
+   over hours; a shuffled split leaks near-identical neighbouring
+   samples into the test set and reports a number that cannot be
+   reproduced operationally.
 2. **Split definitions are serialisable.** The exact indices are written to
-   disk and hashed, because they are deposited alongside the benchmark for the
-   Zenodo DOI. Reconstructing them from prose later is not reproducible.
+   disk and hashed, because they are deposited alongside the benchmark
+   for the Zenodo DOI. Reconstructing them from prose later is not
+   reproducible.
 """
 
 from __future__ import annotations
@@ -41,11 +43,12 @@ __all__ = [
 def monsoon_phase(index: pd.DatetimeIndex) -> np.ndarray:
     """Map timestamps to monsoon phase codes (see ``config.MONSOON_LABELS``).
 
-    Month-based, following the Malaysian Meteorological Department convention.
-    This is a deliberate simplification — real onset shifts by weeks year to
-    year — and that simplification is exactly what the Module A gate-validation
-    study tests, by checking whether the learned gate weight tracks *actual*
-    onset dates better than this fixed calendar does.
+    Month-based, following the Malaysian Meteorological Department
+    convention. This is a deliberate simplification — real onset shifts
+    by weeks year to year — and that simplification is exactly what the
+    Module A gate-validation study tests, by checking whether the
+    learned gate weight tracks *actual* onset dates better than this
+    fixed calendar does.
     """
     months = np.asarray(index.month, dtype=int)
     out = np.empty(months.shape, dtype=np.int8)
@@ -61,29 +64,32 @@ def is_transition_window(
 ) -> np.ndarray:
     """Mark samples falling within +/- ``window_days`` of a monsoon transition.
 
-    Quantile calibration characteristically degrades under regime shift. A
-    single aggregate PICP would average that failure away, so PICP and
-    reliability are reported separately for transition and stable windows.
+    Quantile calibration characteristically degrades under regime shift.
+    A single aggregate PICP would average that failure away, so PICP and
+    reliability are reported separately for transition and stable
+    windows.
     """
     if window_days < 0:
         raise ValueError(f"window_days must be >= 0, got {window_days}")
 
     idx = pd.DatetimeIndex(index)
     mask = np.zeros(len(idx), dtype=bool)
-    # np.asarray, not .to_numpy(): pandas 3.0 already returns ndarrays here,
-    # while pandas 2.x returns Index objects. This works on both.
+    # np.asarray, not .to_numpy(): pandas 3.0 already returns ndarrays
+    # here, while pandas 2.x returns Index objects. This works on both.
     day_of_year = np.asarray(idx.dayofyear, dtype=int)
     is_leap = np.asarray(idx.is_leap_year, dtype=bool)
 
     for month, day in MONSOON_TRANSITIONS:
-        # Transition day-of-year, computed per sample so leap years are exact.
+        # Transition day-of-year, computed per sample so leap years are
+        # exact.
         anchor = np.where(
             is_leap,
             pd.Timestamp(2020, month, day).dayofyear,  # 2020 is a leap year
             pd.Timestamp(2019, month, day).dayofyear,
         )
         year_length = np.where(is_leap, 366, 365)
-        # Circular distance, so a window spanning the new year still works.
+        # Circular distance, so a window spanning the new year still
+        # works.
         raw = np.abs(day_of_year - anchor)
         distance = np.minimum(raw, year_length - raw)
         mask |= distance <= window_days
@@ -107,7 +113,9 @@ def assign_splits(df: pd.DataFrame) -> pd.DataFrame:
     Expects a DatetimeIndex. Returns a copy; the input is not mutated.
     """
     if not isinstance(df.index, pd.DatetimeIndex):
-        raise TypeError(f"expected a DatetimeIndex, got {type(df.index).__name__}")
+        raise TypeError(
+            f"expected a DatetimeIndex, got {type(df.index).__name__}"
+        )
 
     out = df.copy()
     out["split"] = split_label(out.index)
@@ -119,7 +127,8 @@ def assign_splits(df: pd.DataFrame) -> pd.DataFrame:
 def split_summary(df: pd.DataFrame) -> pd.DataFrame:
     """Row counts and date bounds per split — a sanity check before training.
 
-    Verifies the property that matters: no split overlaps another in time.
+    Verifies the property that matters: no split overlaps another in
+    time.
     """
     if "split" not in df.columns:
         df = assign_splits(df)
@@ -144,8 +153,8 @@ def split_summary(df: pd.DataFrame) -> pd.DataFrame:
 def write_split_manifest(df: pd.DataFrame, path: str | Path) -> dict:
     """Serialise split boundaries plus a content hash, for the DOI deposit.
 
-    The hash covers the split boundaries and row counts, so a later run can
-    prove it used identical splits rather than asserting it.
+    The hash covers the split boundaries and row counts, so a later run
+    can prove it used identical splits rather than asserting it.
     """
     summary = split_summary(df)
     manifest = {

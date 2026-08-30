@@ -131,7 +131,9 @@ class TestRampMetrics:
         assert m.n_observed > 0
         assert m.n_predicted == 0
         assert m.recall == pytest.approx(0.0)
-        assert np.isnan(m.precision)  # undefined, not zero, with no predictions
+        assert np.isnan(
+            m.precision
+        )  # undefined, not zero, with no predictions
 
     def test_smooth_forecast_can_have_low_rmse_yet_miss_ramps(self):
         """RMSE alone would rate this model acceptably; recall reveals it."""

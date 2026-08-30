@@ -33,7 +33,7 @@ models = [
 ]
 # Zero-shot foundation-model baseline (Chronos-2).
 foundation = ["chronos-forecasting>=1.5"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "black>=24.0"]
 
 [project.urls]
 Repository = "https://github.com/nikiwit/tropical_solar_forecast"
@@ -44,3 +44,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --tb=short"
+
+[tool.black]
+# PEP 8's 79, not black's default 88. Matches numpy and pvlib, which is
+# the docstring and API convention this package already follows.
+# Docstring and comment prose is wrapped to 72 by hand, per PEP 8's
+# separate limit for flowing text; black does not touch prose.
+line-length = 79
+target-version = ["py312"]

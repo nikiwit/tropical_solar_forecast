@@ -1,12 +1,14 @@
 """Fit Linke turbidity per site and write the calibration artefact.
 
-pvlib's default Linke turbidity climatology underestimates clear-sky GHI by
-4.4-7.6% at all seven sites, which puts a systematic multiplicative error into
-every clear-sky index in the project. This fits one turbidity value per site
-against its own observed clear-sky periods, using only the training years.
+pvlib's default Linke turbidity climatology underestimates clear-sky GHI
+by 4.4-7.6% at all seven sites, which puts a systematic multiplicative
+error into every clear-sky index in the project. This fits one turbidity
+value per site against its own observed clear-sky periods, using only
+the training years.
 
-Run once. The output is committed -- it is a result, not raw data, and the rest
-of the pipeline must be reproducible without re-running the fit.
+Run once. The output is committed -- it is a result, not raw data, and
+the rest of the pipeline must be reproducible without re-running the
+fit.
 
     python scripts/fit_turbidity.py
     python scripts/fit_turbidity.py --sites kuala_lumpur penang
@@ -21,7 +23,11 @@ import sys
 import time
 import warnings
 
-from solarfc.clearsky import fit_linke_turbidity, save_turbidity, TURBIDITY_PATH
+from solarfc.clearsky import (
+    fit_linke_turbidity,
+    save_turbidity,
+    TURBIDITY_PATH,
+)
 from solarfc.config import SITE_KEYS, TRAIN_YEARS
 from solarfc.data import load_site
 
@@ -42,7 +48,9 @@ def main(argv=None) -> int:
     warnings.filterwarnings("ignore")
 
     print(f"Fitting Linke turbidity on training years {TRAIN_YEARS}")
-    print(f"{len(args.sites)} site(s); detect-then-fit, up to 5 iterations each\n")
+    print(
+        f"{len(args.sites)} site(s); detect-then-fit, up to 5 iterations each\n"
+    )
 
     def progress(site, iteration, value, n_clear, rmse):
         print(
@@ -57,7 +65,11 @@ def main(argv=None) -> int:
     for position, site in enumerate(args.sites, start=1):
         site_start = time.time()
         elapsed = time.time() - started
-        eta = (elapsed / (position - 1) * (len(args.sites) - position + 1)) if position > 1 else None
+        eta = (
+            (elapsed / (position - 1) * (len(args.sites) - position + 1))
+            if position > 1
+            else None
+        )
         header = f"[{position}/{len(args.sites)}] {site}"
         if eta is not None:
             header += f"   (elapsed {_format_duration(elapsed)}, ETA {_format_duration(eta)})"
@@ -67,7 +79,9 @@ def main(argv=None) -> int:
         outcome = fit_linke_turbidity(frame["GHI"], site, progress=progress)
         results[site] = outcome
 
-        shift = 100.0 * (outcome["turbidity"] / outcome["default_turbidity"] - 1.0)
+        shift = 100.0 * (
+            outcome["turbidity"] / outcome["default_turbidity"] - 1.0
+        )
         flag = "" if outcome["converged"] else "  [did not converge]"
         print(
             f"  -> TL {outcome['default_turbidity']:.2f} (pvlib) "
@@ -79,11 +93,15 @@ def main(argv=None) -> int:
 
     path = save_turbidity(results, args.out)
     print(f"Wrote {path}  ({_format_duration(time.time() - started)} total)")
-    print("\nCommit this file -- it is a fitted result the pipeline depends on.")
+    print(
+        "\nCommit this file -- it is a fitted result the pipeline depends on."
+    )
 
     not_converged = [s for s, r in results.items() if not r["converged"]]
     if not_converged:
-        print(f"\nWARNING: did not converge for {not_converged}", file=sys.stderr)
+        print(
+            f"\nWARNING: did not converge for {not_converged}", file=sys.stderr
+        )
         return 1
     return 0
 

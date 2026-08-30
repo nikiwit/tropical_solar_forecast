@@ -139,8 +139,12 @@ class TestUpsampleAccumulations:
         df["ssrd"] = [0.0, 3_600_000.0, 0.0]  # 1000 W/m^2 during 00:00-01:00
 
         out = E.upsample_to_10min(df)
-        first_hour = out.loc["2016-01-01 00:00":"2016-01-01 00:50", "ssrd_rate"]
-        second_hour = out.loc["2016-01-01 01:00":"2016-01-01 01:50", "ssrd_rate"]
+        first_hour = out.loc[
+            "2016-01-01 00:00":"2016-01-01 00:50", "ssrd_rate"
+        ]
+        second_hour = out.loc[
+            "2016-01-01 01:00":"2016-01-01 01:50", "ssrd_rate"
+        ]
 
         assert np.allclose(first_hour.to_numpy(), 1000.0)
         assert np.allclose(second_hour.to_numpy(), 0.0)
@@ -166,7 +170,9 @@ class TestDeriveFeatures:
         assert self._out()["era5_temp_c"].iloc[0] == pytest.approx(26.85)
 
     def test_pressure_converted_to_hpa(self):
-        assert self._out()["era5_pressure_hpa"].iloc[0] == pytest.approx(1010.0)
+        assert self._out()["era5_pressure_hpa"].iloc[0] == pytest.approx(
+            1010.0
+        )
 
     def test_wind_speed_from_components(self):
         # u=3, v=4 -> 5
@@ -194,7 +200,9 @@ class TestDeriveFeatures:
 
     def test_saturated_air_gives_100_percent(self):
         out = self._out(d2m=300.0)  # dewpoint == temperature
-        assert out["era5_relative_humidity"].iloc[0] == pytest.approx(100.0, abs=0.5)
+        assert out["era5_relative_humidity"].iloc[0] == pytest.approx(
+            100.0, abs=0.5
+        )
 
     def test_drier_air_lowers_humidity(self):
         humid = self._out(d2m=299.0)["era5_relative_humidity"].iloc[0]

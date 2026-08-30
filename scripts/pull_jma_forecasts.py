@@ -1,29 +1,30 @@
 """Pull archived JMA GSM forecasts from Open-Meteo's Previous Runs API.
 
-Purpose: measure how real NWP forecast error grows with lead time over the
-seven study sites, so the realistic known-future track is calibrated from data
-rather than from published verification figures (which are overwhelmingly
-European or CONUS, where convective cloud behaves differently).
+Purpose: measure how real NWP forecast error grows with lead time over
+the seven study sites, so the realistic known-future track is calibrated
+from data rather than from published verification figures (which are
+overwhelmingly European or CONUS, where convective cloud behaves
+differently).
 
-The API serves each variable at fixed lead offsets. ``_previous_day1`` is what
-was forecast 24 hours before the valid time, ``day2`` 48 hours before, and so
-on. Comparing those against ERA5 gives real error statistics per variable per
-lead time.
+The API serves each variable at fixed lead offsets. ``_previous_day1``
+is what was forecast 24 hours before the valid time, ``day2`` 48 hours
+before, and so on. Comparing those against ERA5 gives real error
+statistics per variable per lead time.
 
 What is actually available, probed rather than taken from the docs:
 
 * JMA GSM carries cloud cover, 2 m temperature, relative humidity, dew point
-  and precipitation back to 2018 -- the five fields the degradation model
-  perturbs.
+  and precipitation back to 2018 -- the five fields the degradation
+  model perturbs.
 * Offsets day0, day1, day2 and day3 are populated. day5 and day7 are not.
 * JMA GSM has **no** shortwave radiation at any date. Archived forecast GHI
-  begins in 2024 for every model, and NSRDB ends in 2020, so an operational
-  NWP GHI baseline on the test year is impossible. That comparison moves to
-  the Phase 6/7 real-world demo instead.
+  begins in 2024 for every model, and NSRDB ends in 2020, so an
+  operational NWP GHI baseline on the test year is impossible. That
+  comparison moves to the real-world deployment demo instead.
 
 Run:
-    python scripts/pull_jma_forecasts.py
-    python scripts/pull_jma_forecasts.py --years 2020 --sites kuala_lumpur
+    python scripts/pull_jma_forecasts.py python
+    scripts/pull_jma_forecasts.py --years 2020 --sites kuala_lumpur
 
 Output:
     data/processed/jma/{site}_forecasts.parquet
@@ -51,9 +52,9 @@ OUT_DIR = PROCESSED_DIR / "jma"
 
 #: API variable -> (our column stem, conversion to ERA5 units).
 #:
-#: Units must match the ERA5 columns exactly, or the measured "error" would be
-#: a unit mismatch rather than forecast error. JMA reports cloud cover as a
-#: percentage; ERA5 uses a 0-1 fraction.
+#: Units must match the ERA5 columns exactly, or the measured "error"
+#: would be a unit mismatch rather than forecast error. JMA reports
+#: cloud cover as a percentage; ERA5 uses a 0-1 fraction.
 VARIABLES: dict[str, tuple[str, float]] = {
     "cloud_cover": ("era5_cloud_cover", 0.01),
     "temperature_2m": ("era5_temp_c", 1.0),
@@ -139,8 +140,10 @@ def main(argv=None) -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     jobs = [(s, y) for s in args.sites for y in sorted(args.years)]
 
-    print(f"pulling {MODEL}: {len(args.sites)} sites x {len(args.years)} years "
-          f"= {len(jobs)} requests, leads {[d * 24 for d in LEAD_DAYS]}h")
+    print(
+        f"pulling {MODEL}: {len(args.sites)} sites x {len(args.years)} years "
+        f"= {len(jobs)} requests, leads {[d * 24 for d in LEAD_DAYS]}h"
+    )
 
     per_site: dict[str, list[pd.DataFrame]] = {s: [] for s in args.sites}
     attrs: dict[str, dict] = {}
@@ -151,22 +154,34 @@ def main(argv=None) -> int:
             try:
                 part = fetch_site_year(site_key, year, args.timeout)
                 break
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                json.JSONDecodeError,
+            ) as exc:
                 if attempt == 3:
-                    print(f"\n  {site_key} {year}: failed after 3 attempts: {exc}",
-                          file=sys.stderr)
+                    print(
+                        f"\n  {site_key} {year}: failed after 3 attempts: {exc}",
+                        file=sys.stderr,
+                    )
                     return 1
                 backoff = 5 * attempt
-                print(f"    retry {attempt} for {site_key} {year} in {backoff}s "
-                      f"({type(exc).__name__})", flush=True)
+                print(
+                    f"    retry {attempt} for {site_key} {year} in {backoff}s "
+                    f"({type(exc).__name__})",
+                    flush=True,
+                )
                 time.sleep(backoff)
 
         per_site[site_key].append(part)
         attrs[site_key] = dict(part.attrs)
 
         elapsed = time.time() - start
-        print(f"  [{i:>2}/{len(jobs)}] {site_key:<16} {year}  "
-              f"{len(part):>5} rows  {elapsed:5.1f}s elapsed", flush=True)
+        print(
+            f"  [{i:>2}/{len(jobs)}] {site_key:<16} {year}  "
+            f"{len(part):>5} rows  {elapsed:5.1f}s elapsed",
+            flush=True,
+        )
 
         if i < len(jobs):
             time.sleep(args.pause)
@@ -178,7 +193,9 @@ def main(argv=None) -> int:
 
         dupes = int(frame.index.duplicated().sum())
         if dupes:
-            print(f"  {site_key}: {dupes} duplicate timestamps", file=sys.stderr)
+            print(
+                f"  {site_key}: {dupes} duplicate timestamps", file=sys.stderr
+            )
             return 1
 
         path = args.out_dir / f"{site_key}_forecasts.parquet"
@@ -188,21 +205,25 @@ def main(argv=None) -> int:
             c: round(float(frame[c].notna().mean()), 4) for c in frame.columns
         }
         worst = min(coverage.values()) if coverage else 0.0
-        print(f"  {site_key:<16} {len(frame):>6,} rows  "
-              f"{frame.index.min().date()} -> {frame.index.max().date()}  "
-              f"min coverage {worst:.1%}")
+        print(
+            f"  {site_key:<16} {len(frame):>6,} rows  "
+            f"{frame.index.min().date()} -> {frame.index.max().date()}  "
+            f"min coverage {worst:.1%}"
+        )
 
-        manifest_files.append({
-            "site": site_key,
-            "file": path.name,
-            "rows": len(frame),
-            "start": str(frame.index.min()),
-            "end": str(frame.index.max()),
-            "grid_lat": attrs[site_key].get("grid_lat"),
-            "grid_lon": attrs[site_key].get("grid_lon"),
-            "coverage": coverage,
-            "sha256": sha256(path),
-        })
+        manifest_files.append(
+            {
+                "site": site_key,
+                "file": path.name,
+                "rows": len(frame),
+                "start": str(frame.index.min()),
+                "end": str(frame.index.max()),
+                "grid_lat": attrs[site_key].get("grid_lat"),
+                "grid_lon": attrs[site_key].get("grid_lon"),
+                "coverage": coverage,
+                "sha256": sha256(path),
+            }
+        )
 
     manifest = {
         "source": "Open-Meteo Previous Runs API",
@@ -222,7 +243,7 @@ def main(argv=None) -> int:
             "JMA GSM carries no shortwave radiation at any date, and archived "
             "forecast GHI begins in 2024 for every model while NSRDB ends in "
             "2020. An operational NWP GHI baseline on the test year is "
-            "therefore impossible; that comparison moves to the Phase 6/7 "
+            "therefore impossible; that comparison moves to the real-world "
             "real-world demo against Solcast actuals."
         ),
         "years": sorted(args.years),

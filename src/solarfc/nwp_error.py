@@ -1,21 +1,22 @@
 """Measure real NWP forecast error and fit the degradation model.
 
-The realistic known-future track perturbs ERA5 by an amount that should reflect
-how wrong a real weather forecast actually is. Published verification figures
-are overwhelmingly European or CONUS, and tropical convective cloud is a harder
-and different regime, so borrowing those numbers would assert a calibration
-rather than establish one. This module measures it instead, from archived JMA
-GSM forecasts over the seven study sites.
+The realistic known-future track perturbs ERA5 by an amount that should
+reflect how wrong a real weather forecast actually is. Published
+verification figures are overwhelmingly European or CONUS, and tropical
+convective cloud is a harder and different regime, so borrowing those
+numbers would assert a calibration rather than establish one. This
+module measures it instead, from archived JMA GSM forecasts over the
+seven study sites.
 
 What counts as "error"
 ----------------------
 Error is measured as **JMA at lead L against JMA at lead 0**, not against ERA5.
 
-Comparing JMA against ERA5 would conflate two different things: how much a
-forecast degrades with lead time, and how much two different models disagree at
-any lead. The second is inter-model spread and has nothing to do with
-forecasting skill. Differencing a model against its own shortest-lead run
-isolates the part we actually want.
+Comparing JMA against ERA5 would conflate two different things: how much
+a forecast degrades with lead time, and how much two different models
+disagree at any lead. The second is inter-model spread and has nothing
+to do with forecasting skill. Differencing a model against its own
+shortest-lead run isolates the part we actually want.
 
 ERA5 is still used, as an independent check that JMA's lead-0 run is a
 reasonable stand-in for the analysis. That is reported, not fitted.
@@ -52,7 +53,8 @@ __all__ = [
     "validate_fit",
 ]
 
-#: Lead offsets present in the JMA archive. 72 h is unavailable for 2018.
+#: Lead offsets present in the JMA archive. 72 h is unavailable for
+#: 2018.
 LEAD_HOURS: tuple[int, ...] = (0, 24, 48, 72)
 
 
@@ -83,9 +85,9 @@ def load_era5_hourly(site: str, data_dir=None) -> pd.DataFrame:
     """ERA5 cache resampled back to its native hourly resolution.
 
     The cache is stored at 10-minute resolution for model input, but the
-    intermediate values are interpolated. Comparing a forecast against them
-    would measure interpolation artefacts alongside forecast error, so the
-    comparison uses the hourly points ERA5 actually provides.
+    intermediate values are interpolated. Comparing a forecast against
+    them would measure interpolation artefacts alongside forecast error,
+    so the comparison uses the hourly points ERA5 actually provides.
     """
     base = (PROCESSED_DIR / "era5") if data_dir is None else data_dir
     path = base / f"{site}_10min.parquet"
@@ -109,21 +111,23 @@ def measure_error(
     Parameters
     ----------
     mode : {"total", "drift"}
-        ``"total"`` compares the forecast against **ERA5**, which is the field
-        the realistic track perturbs. This is what a deployed model actually
-        experiences: it was trained on ERA5 and is fed a real forecast, so the
-        input differs by forecast decay *plus* model bias *plus* resolution
-        mismatch. None of those cancel, and all three degrade performance.
+        ``"total"`` compares the forecast against **ERA5**, which is the
+        field the realistic track perturbs. This is what a deployed
+        model actually experiences: it was trained on ERA5 and is fed a
+        real forecast, so the input differs by forecast decay *plus*
+        model bias *plus* resolution mismatch. None of those cancel, and
+        all three degrade performance.
 
-        ``"drift"`` compares the forecast against the same model's own lead-0
-        run. Model bias and resolution cancel, isolating pure forecast decay.
-        Cleaner as a statement about NWP skill, but it understates what a plant
-        experiences by 1.2-2.3x as measured over these sites, so it is reported
-        rather than used to calibrate the degradation.
+        ``"drift"`` compares the forecast against the same model's own
+        lead-0 run. Model bias and resolution cancel, isolating pure
+        forecast decay. Cleaner as a statement about NWP skill, but it
+        understates what a plant experiences by 1.2-2.3x as measured
+        over these sites, so it is reported rather than used to
+        calibrate the degradation.
 
     Returns None when the required columns are absent or empty, so a
-    partially-populated archive (72 h is unavailable for 2018) yields fewer
-    fitting points rather than raising.
+    partially-populated archive (72 h is unavailable for 2018) yields
+    fewer fitting points rather than raising.
     """
     series = error_series(jma, variable, lead_hours, mode=mode, era5=era5)
     if series is None or series.empty:
@@ -149,9 +153,9 @@ def error_series(
 ) -> pd.Series | None:
     """The raw error series behind :func:`measure_error`.
 
-    Exposed separately so several sites can be pooled by concatenating their
-    error series. Pooling the frames instead would create duplicate timestamps
-    and misalign the ERA5 join across sites.
+    Exposed separately so several sites can be pooled by concatenating
+    their error series. Pooling the frames instead would create
+    duplicate timestamps and misalign the ERA5 join across sites.
     """
     if mode not in ("total", "drift"):
         raise ValueError(f"mode must be 'total' or 'drift', got {mode!r}")
@@ -165,9 +169,9 @@ def error_series(
         if reference not in jma.columns:
             return None
         if lead_hours == 0:
-            # Differenced against itself: identically zero. Kept so the lead-0
-            # row exists in the table, but it carries no growth information and
-            # is excluded from the slope fit.
+            # Differenced against itself: identically zero. Kept so the
+            # lead-0 row exists in the table, but it carries no growth
+            # information and is excluded from the slope fit.
             n = int(jma[reference].notna().sum())
             return pd.Series(np.zeros(n), dtype=float) if n else None
         pair = jma[[reference, forecast]].dropna()
@@ -182,14 +186,17 @@ def error_series(
 
 
 def measure_error_autocorrelation(
-    jma: pd.DataFrame, variable: str, lead_hours: int = 24, max_lag_hours: int = 24
+    jma: pd.DataFrame,
+    variable: str,
+    lead_hours: int = 24,
+    max_lag_hours: int = 24,
 ) -> pd.Series:
     """Autocorrelation of the forecast error, by lag in hours.
 
-    Real forecast errors persist -- a run that is too cloudy at noon is usually
-    still too cloudy at 13:00. Treating the error as white noise would let a
-    model average it away across the decoder window and would understate the
-    damage a real forecast does.
+    Real forecast errors persist -- a run that is too cloudy at noon is
+    usually still too cloudy at 13:00. Treating the error as white noise
+    would let a model average it away across the decoder window and
+    would understate the damage a real forecast does.
     """
     reference = f"{variable}_lead0h"
     forecast = f"{variable}_lead{lead_hours}h"
@@ -201,7 +208,10 @@ def measure_error_autocorrelation(
         return pd.Series(dtype=float)
 
     return pd.Series(
-        {lag: float(error.autocorr(lag)) for lag in range(0, max_lag_hours + 1)},
+        {
+            lag: float(error.autocorr(lag))
+            for lag in range(0, max_lag_hours + 1)
+        },
         name=f"{variable}_lead{lead_hours}h",
     )
 
@@ -209,9 +219,9 @@ def measure_error_autocorrelation(
 def _fit_correlation_hours(autocorr: pd.Series) -> float:
     """e-folding time of the error autocorrelation, in hours.
 
-    Fitted by least squares on log-autocorrelation against lag, using only lags
-    where the autocorrelation is still meaningfully positive -- beyond that the
-    values are noise and would drag the fit.
+    Fitted by least squares on log-autocorrelation against lag, using
+    only lags where the autocorrelation is still meaningfully positive
+    -- beyond that the values are noise and would drag the fit.
     """
     if autocorr.empty:
         return 6.0
@@ -238,8 +248,8 @@ def fit_error_model(
 ) -> tuple[ErrorModel, pd.DataFrame]:
     """Fit an :class:`ErrorModel` to measured error growth for one variable.
 
-    Returns the model and the per-lead measurements it was fitted to, so the
-    fit can be inspected and reported rather than trusted.
+    Returns the model and the per-lead measurements it was fitted to, so
+    the fit can be inspected and reported rather than trusted.
     """
     rows = []
     for lead in LEAD_HOURS:
@@ -292,19 +302,22 @@ def _model_from_stats(
     leads = fitting["lead_hours"].to_numpy(float)
     if len(fitting) >= 2:
         slope, intercept = np.polyfit(leads, fitting["std"].to_numpy(float), 1)
-        bias_growth, bias_0 = np.polyfit(leads, fitting["bias"].to_numpy(float), 1)
+        bias_growth, bias_0 = np.polyfit(
+            leads, fitting["bias"].to_numpy(float), 1
+        )
     else:
         row = fitting.iloc[0]
         slope = float(row["std"]) / float(row["lead_hours"])
         intercept = 0.0
         bias_0, bias_growth = float(row["bias"]), 0.0
 
-    # A negative intercept is physically meaningless; clamp to a small positive
-    # value so very short leads still carry some error.
+    # A negative intercept is physically meaningless; clamp to a small
+    # positive value so very short leads still carry some error.
     sigma_0 = float(max(intercept, 0.01 * max(fitting["std"].max(), 1e-6)))
 
-    # Error saturates at climatological spread: a forecast no better than
-    # climatology carries exactly that error and cannot do worse on average.
+    # Error saturates at climatological spread: a forecast no better
+    # than climatology carries exactly that error and cannot do worse on
+    # average.
     sigma_max = float(max(climatological_std, measured["std"].max()))
 
     return ErrorModel(
@@ -331,18 +344,24 @@ VARIABLE_BOUNDS: dict[str, tuple[float | None, float | None]] = {
 
 
 def fit_all_sites(
-    sites=SITE_KEYS, variables=None, data_dir=None, era5_dir=None, mode: str = "total"
+    sites=SITE_KEYS,
+    variables=None,
+    data_dir=None,
+    era5_dir=None,
+    mode: str = "total",
 ) -> tuple[dict[str, ErrorModel], pd.DataFrame]:
     """Fit one error model per variable, pooling all sites.
 
-    Pooling is deliberate. The degradation is applied uniformly across the
-    benchmark, so fitting per site would bake site-specific forecast quality
-    into what is meant to be a generic realism adjustment. Per-site
-    measurements are still returned so an outlier site stays visible.
+    Pooling is deliberate. The degradation is applied uniformly across
+    the benchmark, so fitting per site would bake site-specific forecast
+    quality into what is meant to be a generic realism adjustment.
+    Per-site measurements are still returned so an outlier site stays
+    visible.
 
-    Both modes are measured and returned; only ``mode`` is used for the fitted
-    models. Drift is reported for Chapter 4 as a clean statement of NWP skill
-    decay over tropical SEA; total is what calibrates the realistic track.
+    Both modes are measured and returned; only ``mode`` is used for the
+    fitted models. Drift is reported for Chapter 4 as a clean statement
+    of NWP skill decay over tropical SEA; total is what calibrates the
+    realistic track.
     """
     variables = list(VARIABLE_BOUNDS) if variables is None else list(variables)
 
@@ -359,22 +378,28 @@ def fit_all_sites(
                         jma, variable, lead, mode=measurement_mode, era5=era5
                     )
                     if stats is not None:
-                        rows.append(vars(stats) | {"site": site, "mode": measurement_mode})
+                        rows.append(
+                            vars(stats)
+                            | {"site": site, "mode": measurement_mode}
+                        )
 
     measurements = pd.DataFrame(rows)
 
-    # Aggregate per-site statistics rather than concatenating error series.
+    # Aggregate per-site statistics rather than concatenating error
+    # series.
     #
-    # Concatenating would add *between-site* variance to the fit -- sites with
-    # different systematic biases would inflate the pooled standard deviation
-    # above anything a single site experiences. The degradation is applied
-    # per-site, so the target is the typical within-site error. Variances are
-    # averaged (not standard deviations, which would understate it) and
-    # weighted by sample count.
+    # Concatenating would add *between-site* variance to the fit --
+    # sites with different systematic biases would inflate the pooled
+    # standard deviation above anything a single site experiences. The
+    # degradation is applied per-site, so the target is the typical
+    # within-site error. Variances are averaged (not standard
+    # deviations, which would understate it) and weighted by sample
+    # count.
     pooled = {}
     for variable in variables:
         subset = measurements[
-            (measurements["variable"] == variable) & (measurements["mode"] == mode)
+            (measurements["variable"] == variable)
+            & (measurements["mode"] == mode)
         ]
         if subset.empty:
             raise ValueError(f"{variable}: no measurements in mode {mode!r}")
@@ -387,16 +412,27 @@ def fit_all_sites(
             mean_variance = float(
                 np.average(group["std"].to_numpy(float) ** 2, weights=weights)
             )
-            stats_rows.append({
-                "variable": variable,
-                "lead_hours": int(lead),
-                "bias": float(np.average(group["bias"].to_numpy(float), weights=weights)),
-                "std": float(np.sqrt(mean_variance)),
-                "rmse": float(
-                    np.sqrt(np.average(group["rmse"].to_numpy(float) ** 2, weights=weights))
-                ),
-                "n": int(weights.sum()),
-            })
+            stats_rows.append(
+                {
+                    "variable": variable,
+                    "lead_hours": int(lead),
+                    "bias": float(
+                        np.average(
+                            group["bias"].to_numpy(float), weights=weights
+                        )
+                    ),
+                    "std": float(np.sqrt(mean_variance)),
+                    "rmse": float(
+                        np.sqrt(
+                            np.average(
+                                group["rmse"].to_numpy(float) ** 2,
+                                weights=weights,
+                            )
+                        )
+                    ),
+                    "n": int(weights.sum()),
+                }
+            )
 
         if len(stats_rows) < 2:
             raise ValueError(
@@ -406,13 +442,19 @@ def fit_all_sites(
 
         climatology = float(
             pd.concat(
-                [j[f"{variable}_lead0h"] for j in jma_frames
-                 if f"{variable}_lead0h" in j],
+                [
+                    j[f"{variable}_lead0h"]
+                    for j in jma_frames
+                    if f"{variable}_lead0h" in j
+                ],
                 ignore_index=True,
             ).std()
         )
         autocorr = pd.concat(
-            [measure_error_autocorrelation(j, variable, 24) for j in jma_frames],
+            [
+                measure_error_autocorrelation(j, variable, 24)
+                for j in jma_frames
+            ],
             axis=1,
         ).mean(axis=1)
 
@@ -432,10 +474,11 @@ def validate_fit(
 ) -> pd.DataFrame:
     """Check the fitted model reproduces the error it was fitted to.
 
-    A degradation model that does not match its own fitting data is worse than
-    no degradation at all, because it produces numbers that look principled and
-    are not. Returns a per-lead comparison with a pass flag; the caller decides
-    what to do about failures rather than having an exception thrown at them.
+    A degradation model that does not match its own fitting data is
+    worse than no degradation at all, because it produces numbers that
+    look principled and are not. Returns a per-lead comparison with a
+    pass flag; the caller decides what to do about failures rather than
+    having an exception thrown at them.
     """
     rows = []
     for _, row in measured.iterrows():
@@ -444,15 +487,21 @@ def validate_fit(
             continue
         predicted = float(model.sigma_at(lead))
         observed = float(row["std"])
-        relative = abs(predicted - observed) / observed if observed > 0 else np.nan
-        rows.append({
-            "variable": model.variable,
-            "lead_hours": int(lead),
-            "measured_std": observed,
-            "model_sigma": predicted,
-            "relative_error": relative,
-            "within_tolerance": bool(relative <= tolerance)
-            if np.isfinite(relative)
-            else False,
-        })
+        relative = (
+            abs(predicted - observed) / observed if observed > 0 else np.nan
+        )
+        rows.append(
+            {
+                "variable": model.variable,
+                "lead_hours": int(lead),
+                "measured_std": observed,
+                "model_sigma": predicted,
+                "relative_error": relative,
+                "within_tolerance": (
+                    bool(relative <= tolerance)
+                    if np.isfinite(relative)
+                    else False
+                ),
+            }
+        )
     return pd.DataFrame(rows)

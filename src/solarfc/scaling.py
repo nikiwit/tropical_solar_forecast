@@ -6,20 +6,21 @@ Each site gets its own mean and standard deviation, fitted on 2016-2018 and
 frozen. Three reasons, in order of weight:
 
 1. It matches the deployment story. A plant normalises against its own history,
-   not against a pool that includes Bangkok and Jakarta. Contribution 4 is a
-   single-site GHI-to-MWac chain, so a single-site statistic is the honest one.
+   not against a pool that includes Bangkok and Jakarta. Contribution 4
+   is a single-site GHI-to-MWac chain, so a single-site statistic is the
+   honest one.
 2. It keeps the SolarInfer equivalence check well posed. The C++ engine loads
-   one site's parameters and must match PyTorch to 4 decimal places *in this
-   space*, so the space has to be unambiguous and file-backed.
+   one site's parameters and must match PyTorch to 4 decimal places *in
+   this space*, so the space has to be unambiguous and file-backed.
 3. Pooling widens every distribution. The seven sites differ enough in mean
-   irradiance and humidity that shared statistics compress each site's own
-   variation toward the pooled mean.
+   irradiance and humidity that shared statistics compress each site's
+   own variation toward the pooled mean.
 
-The cost is that the Phase 5 zero-shot transfer test needs statistics for a site
-the model never trained on. That is defensible -- a new plant has an irradiance
-history long before it has a forecasting model -- but it is an assumption, and
-:func:`fit_pooled` exists so the pooled variant can be reported alongside it
-rather than argued about.
+The cost is that the zero-shot transfer study needs statistics for a
+site the model never trained on. That is defensible -- a new plant has
+an irradiance history long before it has a forecasting model -- but it
+is an assumption, and :func:`fit_pooled` exists so the pooled variant
+can be reported alongside it rather than argued about.
 
 Why fitted on train years only
 ------------------------------
@@ -41,11 +42,11 @@ from .config import TRAIN_YEARS
 
 __all__ = ["Standardiser", "fit_standardiser", "fit_pooled"]
 
-#: Columns below this standard deviation are treated as constant and passed
-#: through unscaled. Dividing by a near-zero sigma turns a numerically dead
-#: column into a source of enormous values, which destabilises a network and
-#: would break the 4 d.p. C++ comparison for reasons that have nothing to do
-#: with the C++.
+#: Columns below this standard deviation are treated as constant and
+#: passed through unscaled. Dividing by a near-zero sigma turns a
+#: numerically dead column into a source of enormous values, which
+#: destabilises a network and would break the 4 d.p. C++ comparison for
+#: reasons that have nothing to do with the C++.
 MIN_SIGMA = 1e-8
 
 
@@ -56,16 +57,17 @@ class Standardiser:
     Attributes
     ----------
     mean, std : dict
-        Per-column statistics. Columns absent from these dicts are passed
-        through unchanged, which is what keeps categorical and already-bounded
-        columns (monsoon phase, cloud type, sin/cos encodings) out of the
-        transform.
+        Per-column statistics. Columns absent from these dicts are
+        passed through unchanged, which is what keeps categorical and
+        already-bounded columns (monsoon phase, cloud type, sin/cos
+        encodings) out of the transform.
     site : str
         Site key the statistics were fitted on.
     fit_years : tuple of int
-        Years the statistics were fitted on. Recorded so a results table can be
-        traced back to the exact fit, and so an accidental all-years fit is
-        visible in the artefact rather than only in the code that made it.
+        Years the statistics were fitted on. Recorded so a results table
+        can be traced back to the exact fit, and so an accidental
+        all-years fit is visible in the artefact rather than only in the
+        code that made it.
     """
 
     mean: dict[str, float] = field(default_factory=dict)
@@ -78,9 +80,9 @@ class Standardiser:
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         """Standardise the columns this instance was fitted on.
 
-        Columns present in ``df`` but absent from the fit are left untouched
-        rather than raising, so a feature-set variant can be transformed by a
-        standardiser fitted on the superset.
+        Columns present in ``df`` but absent from the fit are left
+        untouched rather than raising, so a feature-set variant can be
+        transformed by a standardiser fitted on the superset.
         """
         out = df.copy()
         for column in out.columns:
@@ -105,8 +107,9 @@ class Standardiser:
     def to_json(self, path: str | Path) -> Path:
         """Serialise to the format SolarInfer's ``FeaturePreprocessor`` loads.
 
-        Sorted keys and an explicit column order so the file is byte-stable
-        across runs -- it is hashed into the split manifest for the DOI deposit.
+        Sorted keys and an explicit column order so the file is
+        byte-stable across runs -- it is hashed into the split manifest
+        for the DOI deposit.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -119,7 +122,9 @@ class Standardiser:
             "passthrough": list(self.passthrough),
             "min_sigma": MIN_SIGMA,
         }
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
         return path
 
     @classmethod
@@ -136,10 +141,10 @@ class Standardiser:
 
 #: Never standardised.
 #:
-#: Cyclical encodings are already on [-1, 1] and z-scoring them destroys the
-#: property that makes them work -- the unit circle stops being a circle.
-#: Categorical codes carry no distance, so a mean and a standard deviation are
-#: meaningless. Boolean flags are already 0/1.
+#: Cyclical encodings are already on [-1, 1] and z-scoring them destroys
+#: the property that makes them work -- the unit circle stops being a
+#: circle. Categorical codes carry no distance, so a mean and a standard
+#: deviation are meaningless. Boolean flags are already 0/1.
 DEFAULT_PASSTHROUGH: tuple[str, ...] = (
     "hour_sin",
     "hour_cos",
@@ -185,8 +190,8 @@ def fit_standardiser(
     site : str
         Site key, recorded in the artefact.
     years : tuple of int
-        Years to fit on. Defaults to ``config.TRAIN_YEARS``; overriding this is
-        how the Phase 5 few-shot study fits on a fine-tuning window.
+        Years to fit on. Defaults to ``config.TRAIN_YEARS``; overriding
+        this is how the few-shot study fits on a fine-tuning window.
 
     Notes
     -----
@@ -195,7 +200,9 @@ def fit_standardiser(
     ``ddof=1`` here would put a factor of ``sqrt(n/(n-1))`` between Python and
     C++ that is far too small to see and far too large to pass a 4 d.p. gate.
     """
-    mask = np.isin(np.asarray(df.index.year, dtype=int), np.asarray(years, dtype=int))
+    mask = np.isin(
+        np.asarray(df.index.year, dtype=int), np.asarray(years, dtype=int)
+    )
     if not mask.any():
         raise ValueError(f"{site}: no rows in fit years {tuple(years)}")
 
@@ -227,20 +234,23 @@ def fit_pooled(
     years=TRAIN_YEARS,
     passthrough=DEFAULT_PASSTHROUGH,
 ) -> Standardiser:
-    """Fit one standardiser across several sites, for the Phase 5 transfer study.
+    """Fit one standardiser across several sites, for the transfer study.
 
-    Zero-shot transfer to an unseen site is the one setting where a per-site
-    statistic begs the question: the model is supposed to work somewhere it has
-    no history. Pooled statistics answer that honestly, at the cost of
-    compressing each site's own variation. Both are reported.
+    Zero-shot transfer to an unseen site is the one setting where a
+    per-site statistic begs the question: the model is supposed to work
+    somewhere it has no history. Pooled statistics answer that honestly,
+    at the cost of compressing each site's own variation. Both are
+    reported.
 
-    Statistics are pooled over the concatenated training rows, so a site with a
-    longer record carries proportionally more weight -- which is correct here,
-    since all seven sites have identical coverage.
+    Statistics are pooled over the concatenated training rows, so a site
+    with a longer record carries proportionally more weight -- which is
+    correct here, since all seven sites have identical coverage.
     """
     train_parts = []
     for site, df in frames.items():
-        mask = np.isin(np.asarray(df.index.year, dtype=int), np.asarray(years, dtype=int))
+        mask = np.isin(
+            np.asarray(df.index.year, dtype=int), np.asarray(years, dtype=int)
+        )
         if not mask.any():
             raise ValueError(f"{site}: no rows in fit years {tuple(years)}")
         train_parts.append(df.loc[mask])

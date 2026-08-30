@@ -8,10 +8,11 @@ information source except climatology shaped by the diurnal cycle, so Forecast
 Skill at the long horizons would collapse and the decoder half of the TFT --
 the specific reason a TFT was chosen over a plain encoder -- would go unused.
 
-Feeding unmodified ERA5 over the forecast window fixes that but overshoots in
-the other direction. ERA5 is reanalysis, so it is a *perfect* weather forecast.
-No operator will ever have one, and reporting those numbers as operational
-accuracy is the most common criticism levelled at solar forecasting papers.
+Feeding unmodified ERA5 over the forecast window fixes that but
+overshoots in the other direction. ERA5 is reanalysis, so it is a
+*perfect* weather forecast. No operator will ever have one, and
+reporting those numbers as operational accuracy is the most common
+criticism levelled at solar forecasting papers.
 
 So every model trains and reports on three tracks:
 
@@ -23,8 +24,8 @@ Track                Known-future atmospheric inputs             What it measure
 ``perfect``          ERA5 unmodified                             optimistic ceiling
 ===================  ==========================================  ==================
 
-The middle one is what a plant would actually achieve, and it is the one most
-papers omit.
+The middle one is what a plant would actually achieve, and it is the one
+most papers omit.
 
 Decoder window
 --------------
@@ -43,8 +44,8 @@ would be hardest to notice. Two rules, both asserted in tests rather than by
 inspection:
 
 1. Only *deterministic* or *forecast* quantities may appear. Solar geometry and
-   calendar terms are computable years ahead. NWP fields are forecasts. Observed
-   irradiance is neither and must never appear in the decoder.
+   calendar terms are computable years ahead. NWP fields are forecasts.
+   Observed irradiance is neither and must never appear in the decoder.
 2. The ``nwp_free`` track must contain no atmospheric column at all.
 """
 
@@ -75,7 +76,8 @@ __all__ = [
     "load_fitted_error_models",
 ]
 
-#: The three known-future regimes. Order is lower bound, operational, ceiling.
+#: The three known-future regimes. Order is lower bound, operational,
+#: ceiling.
 TRACKS: tuple[str, ...] = ("nwp_free", "realistic", "perfect")
 
 #: Deterministic from the timestamp alone.
@@ -87,8 +89,8 @@ CALENDAR_FEATURES: tuple[str, ...] = (
     "monsoon_phase",
 )
 
-#: Deterministic from timestamp plus site coordinates. Computable years ahead,
-#: which is what makes them legitimate known-future inputs.
+#: Deterministic from timestamp plus site coordinates. Computable years
+#: ahead, which is what makes them legitimate known-future inputs.
 SOLAR_FEATURES: tuple[str, ...] = (
     "solar_zenith",
     "solar_azimuth",
@@ -122,16 +124,18 @@ def known_future_columns(track: str) -> tuple[str, ...]:
 def solar_geometry(index: pd.DatetimeIndex, site: Site | str) -> pd.DataFrame:
     """Solar position and clear-sky irradiance from timestamp and coordinates.
 
-    Uses pvlib: SPA for solar position, Ineichen for clear-sky GHI with the
-    site's **fitted** Linke turbidity (see :mod:`solarfc.clearsky`). pvlib's
-    default climatology runs 4.4-7.6% low at these tropical sites, and this
-    envelope is the denominator of every clear-sky index in the project, so the
-    default would put a systematic multiplicative error into the target itself.
+    Uses pvlib: SPA for solar position, Ineichen for clear-sky GHI with
+    the site's **fitted** Linke turbidity (see :mod:`solarfc.clearsky`).
+    pvlib's default climatology runs 4.4-7.6% low at these tropical
+    sites, and this envelope is the denominator of every clear-sky index
+    in the project, so the default would put a systematic multiplicative
+    error into the target itself.
 
-    These are the backbone of the known-future path. They carry no weather
-    information at all, but they encode the hard physical constraint that
-    irradiance is zero at night and bounded by the clear-sky envelope by day --
-    which is why even the NWP-free track is not vacuous.
+    These are the backbone of the known-future path. They carry no
+    weather information at all, but they encode the hard physical
+    constraint that irradiance is zero at night and bounded by the
+    clear-sky envelope by day -- which is why even the NWP-free track is
+    not vacuous.
     """
     import pvlib
 
@@ -153,9 +157,10 @@ def solar_geometry(index: pd.DatetimeIndex, site: Site | str) -> pd.DataFrame:
     out["solar_zenith"] = position["zenith"].to_numpy()
     out["solar_azimuth"] = position["azimuth"].to_numpy()
     out["clearsky_ghi"] = clearsky_ghi(index, site).to_numpy()
-    # Cosine of zenith is the geometric driver of irradiance and is better
-    # behaved for a network than the angle: it varies smoothly through solar
-    # noon and goes negative at night rather than saturating at 90 degrees.
+    # Cosine of zenith is the geometric driver of irradiance and is
+    # better behaved for a network than the angle: it varies smoothly
+    # through solar noon and goes negative at night rather than
+    # saturating at 90 degrees.
     out["cos_zenith"] = np.cos(np.radians(out["solar_zenith"]))
     return out
 
@@ -163,8 +168,9 @@ def solar_geometry(index: pd.DatetimeIndex, site: Site | str) -> pd.DataFrame:
 def calendar_features(index: pd.DatetimeIndex) -> pd.DataFrame:
     """Cyclical time encodings and monsoon phase.
 
-    Hour and day-of-year are encoded as sin/cos pairs so that 23:50 and 00:00
-    are adjacent rather than maximally distant, which a raw integer would imply.
+    Hour and day-of-year are encoded as sin/cos pairs so that 23:50 and
+    00:00 are adjacent rather than maximally distant, which a raw
+    integer would imply.
     """
     idx = pd.DatetimeIndex(index)
     out = pd.DataFrame(index=idx)
@@ -197,19 +203,21 @@ class ErrorModel:
     """Parametric NWP forecast-error model for one variable.
 
     Fitted to error measured from JMA GSM archived forecasts (Open-Meteo
-    Previous Runs) rather than taken from published verification figures, which
-    are predominantly European or CONUS. Tropical convective cloud is a harder
-    and different regime, so borrowing those numbers would assert a calibration
-    rather than establish one.
+    Previous Runs) rather than taken from published verification
+    figures, which are predominantly European or CONUS. Tropical
+    convective cloud is a harder and different regime, so borrowing
+    those numbers would assert a calibration rather than establish one.
 
-    Error grows with lead time as ``sigma_0 + growth_rate * lead_hours``, capped
-    at ``sigma_max`` because forecast error saturates at climatological spread
-    rather than growing without bound.
+    Error grows with lead time as ``sigma_0 + growth_rate *
+    lead_hours``, capped at ``sigma_max`` because forecast error
+    saturates at climatological spread rather than growing without
+    bound.
 
-    ``correlation_hours`` sets the timescale over which the error is smooth.
-    Real forecast errors are persistent -- a run that is too cloudy at noon is
-    usually still too cloudy at 13:00 -- so white noise would understate the
-    damage by letting a model average the error away across the window.
+    ``correlation_hours`` sets the timescale over which the error is
+    smooth. Real forecast errors are persistent -- a run that is too
+    cloudy at noon is usually still too cloudy at 13:00 -- so white
+    noise would understate the damage by letting a model average the
+    error away across the window.
     """
 
     variable: str
@@ -219,18 +227,21 @@ class ErrorModel:
     correlation_hours: float = 6.0
     lower_bound: float | None = None
     upper_bound: float | None = None
-    #: Systematic offset between the forecast and the field being perturbed.
-    #: Measured against ERA5, most of the total error is a lead-independent
-    #: offset from model bias and resolution mismatch rather than forecast
-    #: decay. A bias is a shift, not zero-mean noise, so applying it as noise
-    #: would understate how wrong the input actually is.
+    #: Systematic offset between the forecast and the field being
+    #: perturbed. Measured against ERA5, most of the total error is a
+    #: lead-independent offset from model bias and resolution mismatch
+    #: rather than forecast decay. A bias is a shift, not zero-mean
+    #: noise, so applying it as noise would understate how wrong the
+    #: input actually is.
     bias_0: float = 0.0
     bias_growth: float = 0.0
 
     def sigma_at(self, lead_hours):
         """Error standard deviation at each lead time, saturating at sigma_max."""
         lead = np.asarray(lead_hours, dtype=float)
-        return np.minimum(self.sigma_0 + self.growth_rate * lead, self.sigma_max)
+        return np.minimum(
+            self.sigma_0 + self.growth_rate * lead, self.sigma_max
+        )
 
     def bias_at(self, lead_hours):
         """Systematic offset at each lead time."""
@@ -241,9 +252,9 @@ class ErrorModel:
 def _correlated_noise(n: int, correlation_steps: float, rng) -> np.ndarray:
     """Unit-variance noise smoothed to a given correlation length.
 
-    An AR(1)-style exponential smoothing, renormalised so the output has unit
-    variance regardless of the correlation length -- otherwise a longer
-    correlation would silently shrink the error magnitude.
+    An AR(1)-style exponential smoothing, renormalised so the output has
+    unit variance regardless of the correlation length -- otherwise a
+    longer correlation would silently shrink the error magnitude.
     """
     if n <= 0:
         return np.zeros(0, dtype=float)
@@ -268,15 +279,19 @@ def degrade(
 ) -> np.ndarray:
     """Apply lead-time-dependent, temporally correlated error to a forecast field.
 
-    Physical bounds are enforced after perturbation: cloud cover cannot leave
-    [0, 1] and precipitation cannot go negative, no matter what the noise does.
-    Clipping is applied last so the bounds hold exactly rather than in
-    distribution.
+    Physical bounds are enforced after perturbation: cloud cover cannot
+    leave [0, 1] and precipitation cannot go negative, no matter what
+    the noise does. Clipping is applied last so the bounds hold exactly
+    rather than in distribution.
     """
     rng = np.random.default_rng() if rng is None else rng
     v = np.asarray(values, dtype=float).ravel()
-    sigma = np.broadcast_to(np.asarray(model.sigma_at(lead_hours), dtype=float), v.shape)
-    bias = np.broadcast_to(np.asarray(model.bias_at(lead_hours), dtype=float), v.shape)
+    sigma = np.broadcast_to(
+        np.asarray(model.sigma_at(lead_hours), dtype=float), v.shape
+    )
+    bias = np.broadcast_to(
+        np.asarray(model.bias_at(lead_hours), dtype=float), v.shape
+    )
 
     correlation_steps = model.correlation_hours * 60.0 / STEP_MINUTES
     noise = _correlated_noise(v.size, correlation_steps, rng)
@@ -294,14 +309,19 @@ def load_fitted_error_models(path=None) -> dict[str, ErrorModel]:
 
     Produced by ``scripts/pull_jma_forecasts.py`` followed by
     ``solarfc.nwp_error.fit_all_sites``. Falls back to the provisional
-    parameters when the fit has not been run, so the pipeline still works on a
-    fresh checkout -- but anything reported must use the fitted values.
+    parameters when the fit has not been run, so the pipeline still
+    works on a fresh checkout -- but anything reported must use the
+    fitted values.
     """
     import json
 
     from .config import PROCESSED_DIR
 
-    path = (PROCESSED_DIR / "nwp_error" / "error_models.json") if path is None else path
+    path = (
+        (PROCESSED_DIR / "nwp_error" / "error_models.json")
+        if path is None
+        else path
+    )
     if not path.exists():
         return dict(PROVISIONAL_ERROR_MODELS)
 
@@ -309,12 +329,14 @@ def load_fitted_error_models(path=None) -> dict[str, ErrorModel]:
     return {name: ErrorModel(**params) for name, params in raw.items()}
 
 
-#: Placeholder parameters, used only when the fitted models are unavailable.
+#: Placeholder parameters, used only when the fitted models are
+#: unavailable.
 #:
-#: These are deliberately NOT for any reported result. The fitted values come
-#: from measured JMA GSM error over the seven study sites -- see
-#: ``solarfc.nwp_error``. Using these for a headline number would be exactly
-#: the asserted-not-measured calibration this design exists to avoid.
+#: These are deliberately NOT for any reported result. The fitted values
+#: come from measured JMA GSM error over the seven study sites -- see
+#: ``solarfc.nwp_error``. Using these for a headline number would be
+#: exactly the asserted-not-measured calibration this design exists to
+#: avoid.
 PROVISIONAL_ERROR_MODELS: dict[str, ErrorModel] = {
     "era5_cloud_cover": ErrorModel(
         "era5_cloud_cover", 0.10, 0.004, 0.35, 6.0, 0.0, 1.0
@@ -355,14 +377,15 @@ def build_known_future(
         Determines solar geometry.
     track : {"nwp_free", "realistic", "perfect"}
     era5 : DataFrame, optional
-        Upsampled ERA5 features. Required for the realistic and perfect tracks.
+        Upsampled ERA5 features. Required for the realistic and perfect
+        tracks.
     error_models : dict, optional
-        Per-variable error models for the realistic track. Defaults to the
-        provisional set, which must be replaced by JMA-fitted values before any
-        reported result.
+        Per-variable error models for the realistic track. Defaults to
+        the provisional set, which must be replaced by JMA-fitted values
+        before any reported result.
     lead_hours : array-like, optional
-        Lead time of each row. Required for the realistic track, since the
-        degradation is lead-dependent.
+        Lead time of each row. Required for the realistic track, since
+        the degradation is lead-dependent.
 
     Returns
     -------
@@ -374,13 +397,17 @@ def build_known_future(
         raise ValueError(f"track must be one of {TRACKS}, got {track!r}")
 
     idx = pd.DatetimeIndex(index)
-    out = pd.concat([calendar_features(idx), solar_geometry(idx, site)], axis=1)
+    out = pd.concat(
+        [calendar_features(idx), solar_geometry(idx, site)], axis=1
+    )
 
     if track == "nwp_free":
         return out[list(known_future_columns(track))]
 
     if era5 is None:
-        raise ValueError(f"track {track!r} requires ERA5 features, got era5=None")
+        raise ValueError(
+            f"track {track!r} requires ERA5 features, got era5=None"
+        )
 
     missing = [c for c in NWP_FEATURES if c not in era5.columns]
     if missing:
@@ -395,7 +422,11 @@ def build_known_future(
                 "lead-time dependent and applying it without lead times would "
                 "silently use a single error magnitude for every horizon"
             )
-        models = load_fitted_error_models() if error_models is None else error_models
+        models = (
+            load_fitted_error_models()
+            if error_models is None
+            else error_models
+        )
         rng = np.random.default_rng() if rng is None else rng
         nwp = nwp.copy()
         for column in NWP_FEATURES:
@@ -413,14 +444,15 @@ def lead_hours_for_window(
 ) -> np.ndarray:
     """Lead time in hours of each timestamp relative to the forecast origin.
 
-    Negative values mean the timestamp precedes the origin, which should never
-    happen in a decoder window and is left unclipped so a caller's mistake
-    surfaces rather than being silently absorbed.
+    Negative values mean the timestamp precedes the origin, which should
+    never happen in a decoder window and is left unclipped so a caller's
+    mistake surfaces rather than being silently absorbed.
     """
     delta = pd.DatetimeIndex(index) - pd.Timestamp(origin)
     return delta.total_seconds().to_numpy() / 3600.0
 
 
-#: Maximum decoder span, in steps. One pass covers this and every horizon is
-#: read from it -- standard TFT, and the natural design for a MIMO head.
+#: Maximum decoder span, in steps. One pass covers this and every
+#: horizon is read from it -- standard TFT, and the natural design for a
+#: MIMO head.
 MAX_DECODER_STEPS: int = max(HORIZON_STEPS)

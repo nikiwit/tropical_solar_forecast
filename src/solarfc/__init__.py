@@ -1,8 +1,8 @@
 """solarfc — evaluation and baseline framework for the Tropical-TFT project.
 
-The evaluation framework is built and frozen before any model is trained, so
-that every baseline, every ablation variant and the C++ engine are all scored
-by identical code.
+The evaluation framework is built and frozen before any model is
+trained, so that every baseline, every ablation variant and the C++
+engine are all scored by identical code.
 
 Modules
 -------

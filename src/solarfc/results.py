@@ -1,27 +1,28 @@
-"""One results schema, written to by every phase.
+"""One results schema, written to by every model.
 
 Why a schema rather than per-experiment tables
 ----------------------------------------------
-Phase 2 produces baselines and gradient boosting, Phase 3 three Transformers,
-Phase 4 a five-model ablation, Phase 5 multi-site and few-shot studies, and
-Phase 7 a deployment benchmark. If each writes its own table shape, every
-cross-phase comparison in Chapter 5 becomes a manual join, and the ablation
-table -- the one that decides whether the contributions hold -- gets assembled
-by hand at the point where mistakes are least visible.
+Baselines, gradient boosting, the Transformer models, the module ablation,
+the multi-site and few-shot studies and the deployment benchmark all emit
+results. If each writes its own table shape, every comparison across them in
+Chapter 5 becomes a manual join, and the ablation table -- the one that decides
+whether the contributions hold -- gets assembled by hand at exactly the point
+where a mistake is least visible.
 
-So every model, in every phase, appends rows in one long format:
+So every model appends rows in one long format:
 
-    one row = one (model, site, horizon, track, feature_set, target, split,
+    one row = one (model, site, horizon, track, feature_set, target,
+    split,
                    stratum) combination, with its metrics
 
-Stratification is a column rather than a separate file. The monsoon-phase
-tables, the transition-vs-stable calibration split and the aggregate all come
-out of the same frame by filtering, which is what keeps them consistent with
-each other.
+Stratification is a column rather than a separate file. The
+monsoon-phase tables, the transition-vs-stable calibration split and the
+aggregate all come out of the same frame by filtering, which is what
+keeps them consistent with each other.
 
-Everything needed to identify a run travels with the row. A results file that
-cannot say which code produced it is not reproducible, and by Chapter 5 there
-will be thousands of rows from months of runs.
+Everything needed to identify a run travels with the row. A results file
+that cannot say which code produced it is not reproducible, and by
+Chapter 5 there will be thousands of rows from months of runs.
 """
 
 from __future__ import annotations
@@ -68,7 +69,8 @@ KEY_COLUMNS: tuple[str, ...] = (
     "stratum_kind",
 )
 
-#: Metric columns. Fixed order so files concatenate cleanly across phases.
+#: Metric columns. Fixed order so files concatenate cleanly across
+#: phases.
 METRIC_COLUMNS: tuple[str, ...] = (
     "n",
     "mae",
@@ -82,10 +84,14 @@ METRIC_COLUMNS: tuple[str, ...] = (
     "fs_naive",
 )
 
-RESULT_COLUMNS: tuple[str, ...] = KEY_COLUMNS + METRIC_COLUMNS + (
-    "run_id",
-    "timestamp",
-    "git_commit",
+RESULT_COLUMNS: tuple[str, ...] = (
+    KEY_COLUMNS
+    + METRIC_COLUMNS
+    + (
+        "run_id",
+        "timestamp",
+        "git_commit",
+    )
 )
 
 
@@ -108,16 +114,18 @@ def _git_commit() -> str:
 class RunMeta:
     """Provenance travelling with every row of a run.
 
-    ``git_commit`` is the one that matters. Thousands of rows will accumulate
-    over the project, and without it a surprising number in Chapter 5 cannot be
-    traced to the code that produced it.
+    ``git_commit`` is the one that matters. Thousands of rows will
+    accumulate over the project, and without it a surprising number in
+    Chapter 5 cannot be traced to the code that produced it.
     """
 
     run_id: str
     model: str
     notes: str = ""
     timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(
+            timespec="seconds"
+        )
     )
     git_commit: str = field(default_factory=_git_commit)
     python: str = field(default_factory=platform.python_version)
@@ -127,7 +135,10 @@ class RunMeta:
     def to_json(self, path: str | Path) -> Path:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(self), indent=2, sort_keys=True), encoding="utf-8")
+        path.write_text(
+            json.dumps(asdict(self), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
         return path
 
 
@@ -139,9 +150,9 @@ class RunMeta:
 def _strata(index: pd.DatetimeIndex) -> list[tuple[str, str, np.ndarray]]:
     """Every stratum a row can be reported under, as (kind, name, mask).
 
-    ``all`` is included so the aggregate and the stratified numbers are produced
-    by the same code path. A separately-computed aggregate is how an aggregate
-    stops matching its own breakdown.
+    ``all`` is included so the aggregate and the stratified numbers are
+    produced by the same code path. A separately-computed aggregate is
+    how an aggregate stops matching its own breakdown.
     """
     out: list[tuple[str, str, np.ndarray]] = [
         ("all", "all", np.ones(len(index), dtype=bool))
@@ -154,7 +165,8 @@ def _strata(index: pd.DatetimeIndex) -> list[tuple[str, str, np.ndarray]]:
             out.append(("monsoon", label, mask))
 
     transition = np.asarray(
-        is_transition_window(index, window_days=TRANSITION_WINDOW_DAYS), dtype=bool
+        is_transition_window(index, window_days=TRANSITION_WINDOW_DAYS),
+        dtype=bool,
     )
     if transition.any():
         out.append(("regime", "transition", transition))
@@ -178,19 +190,20 @@ def score_predictions(
     """Score one prediction series into schema rows, one per stratum.
 
     All inputs are GHI in W/m^2 at the target timestamp -- convert with
-    :func:`solarfc.dataset.to_ghi` first, whatever the model was trained on.
+    :func:`solarfc.dataset.to_ghi` first, whatever the model was trained
+    on.
 
-    The daytime mask is applied once, here, and identically for every model and
-    every reference. A metric that changes its own sample set is not comparable,
-    and Forecast Skill computed against a reference scored on a different set is
-    worse than no skill score at all.
+    The daytime mask is applied once, here, and identically for every
+    model and every reference. A metric that changes its own sample set
+    is not comparable, and Forecast Skill computed against a reference
+    scored on a different set is worse than no skill score at all.
 
     Parameters
     ----------
     reference_smart, reference_naive : array-like, optional
-        Baseline predictions on the same index. Smart persistence is the primary
-        Forecast Skill reference; naive is reported only for comparability with
-        papers that use it.
+        Baseline predictions on the same index. Smart persistence is the
+        primary Forecast Skill reference; naive is reported only for
+        comparability with papers that use it.
     """
     truth = np.asarray(y_true, dtype=float).ravel()
     pred = np.asarray(y_pred, dtype=float).ravel()
@@ -204,16 +217,29 @@ def score_predictions(
         )
 
     daytime = M.daytime_mask(envelope, floor=daytime_floor)
-    smart = None if reference_smart is None else np.asarray(reference_smart, float).ravel()
-    naive = None if reference_naive is None else np.asarray(reference_naive, float).ravel()
+    smart = (
+        None
+        if reference_smart is None
+        else np.asarray(reference_smart, float).ravel()
+    )
+    naive = (
+        None
+        if reference_naive is None
+        else np.asarray(reference_naive, float).ravel()
+    )
 
-    strata = _strata(index) if stratify else [("all", "all", np.ones(len(index), bool))]
+    strata = (
+        _strata(index)
+        if stratify
+        else [("all", "all", np.ones(len(index), bool))]
+    )
 
     rows = []
     for kind, name, stratum in strata:
         mask = daytime & stratum
-        # Every model shares this mask, so a stratum with too few samples is
-        # dropped consistently rather than producing a metric from a handful.
+        # Every model shares this mask, so a stratum with too few
+        # samples is dropped consistently rather than producing a metric
+        # from a handful.
         if mask.sum() < 30:
             continue
 
@@ -243,9 +269,9 @@ def append_results(
 ) -> Path:
     """Append scored rows to the results file, creating it if absent.
 
-    CSV rather than Parquet: the file is read by hand constantly while writing
-    up, diffs legibly in git, and will not outgrow it -- thousands of rows, not
-    millions.
+    CSV rather than Parquet: the file is read by hand constantly while
+    writing up, diffs legibly in git, and will not outgrow it --
+    thousands of rows, not millions.
     """
     path = Path(RESULTS_DIR / "results.csv" if path is None else path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -286,14 +312,17 @@ def pivot_horizons(
 ) -> pd.DataFrame:
     """Horizons across the columns -- the shape every results table wants.
 
-    Rows are ordered by ``config.HORIZON_LABELS`` rather than alphabetically,
-    so '2h' does not sort between '18h' and '20min'.
+    Rows are ordered by ``config.HORIZON_LABELS`` rather than
+    alphabetically, so '2h' does not sort between '18h' and '20min'.
     """
     from .config import HORIZON_LABELS
 
     subset = frame[(frame["split"] == split) & (frame["stratum"] == stratum)]
     table = subset.pivot_table(
-        index=list(index), columns="horizon_label", values=metric, aggfunc="mean"
+        index=list(index),
+        columns="horizon_label",
+        values=metric,
+        aggfunc="mean",
     )
     ordered = [h for h in HORIZON_LABELS if h in table.columns]
     return table[ordered]

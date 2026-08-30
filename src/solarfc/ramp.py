@@ -7,17 +7,18 @@ instability is not caused by average error; it is caused by *ramps* — the
 60-90% irradiance collapse within minutes when an afternoon convective cell
 arrives over an equatorial site.
 
-Ramps are rare. RMSE is therefore dominated by the ~95% of timesteps that are
-unremarkable, and a model can post an excellent RMSE while missing every ramp
-that matters. Scoring ramps explicitly is what connects the numbers to the
-smart-grid claim in the project title.
+Ramps are rare. RMSE is therefore dominated by the ~95% of timesteps
+that are unremarkable, and a model can post an excellent RMSE while
+missing every ramp that matters. Scoring ramps explicitly is what
+connects the numbers to the smart-grid claim in the project title.
 
-It is also the test Module A (monsoon-phase gating) must pass. Convective ramps
-are precisely the tropical phenomenon the gate is designed for, so if the gate
-works anywhere it should show up here — and an RMSE-only evaluation would
-obscure it. If Tropical-TFT's margin over the baselines is *not* larger on ramp
-events than on aggregate error, that is evidence against Module A's rationale
-and must be reported as such.
+It is also the test Module A (monsoon-phase gating) must pass.
+Convective ramps are precisely the tropical phenomenon the gate is
+designed for, so if the gate works anywhere it should show up here — and
+an RMSE-only evaluation would obscure it. If Tropical-TFT's margin over
+the baselines is *not* larger on ramp events than on aggregate error,
+that is evidence against Module A's rationale and must be reported as
+such.
 
 Definition
 ----------
@@ -26,11 +27,12 @@ exceeds a fraction of the concurrent clear-sky GHI:
 
     |GHI(t) - GHI(t - w)| > frac * clearsky_GHI(t)
 
-Normalising by clear-sky GHI rather than using an absolute W/m^2 threshold
-makes the definition comparable across sites and across times of day: a
-200 W/m^2 drop at solar noon is routine, the same drop an hour after sunrise is
-a total occlusion. The threshold and window are swept (see
-``RAMP_THRESHOLD_SWEEP``) so the headline choice is justified, not asserted.
+Normalising by clear-sky GHI rather than using an absolute W/m^2
+threshold makes the definition comparable across sites and across times
+of day: a 200 W/m^2 drop at solar noon is routine, the same drop an hour
+after sunrise is a total occlusion. The threshold and window are swept
+(see ``RAMP_THRESHOLD_SWEEP``) so the headline choice is justified, not
+asserted.
 """
 
 from __future__ import annotations
@@ -61,13 +63,15 @@ class RampMetrics:
     precision: float
     recall: float
     f1: float
-    #: Mean lead time in minutes over correctly detected ramps. NaN when none.
+    #: Mean lead time in minutes over correctly detected ramps. NaN when
+    #: none.
     mean_lead_time_min: float
     n_observed: int
     n_predicted: int
     n_true_positive: int
-    #: Fraction of daytime samples that are observed ramps. Reported because a
-    #: very low base rate makes precision unstable and must temper reading of it.
+    #: Fraction of daytime samples that are observed ramps. Reported
+    #: because a very low base rate makes precision unstable and must
+    #: temper reading of it.
     base_rate: float
 
     def to_dict(self) -> dict[str, float]:
@@ -96,16 +100,17 @@ def detect_ramps(
     daytime_floor : float
         Clear-sky GHI below which samples are night and cannot be ramps.
     signed : bool
-        If True, return ``-1`` for down-ramps, ``+1`` for up-ramps and ``0``
-        otherwise, as an int array. Down-ramps are the operationally dangerous
-        direction; up-ramps matter for curtailment.
+        If True, return ``-1`` for down-ramps, ``+1`` for up-ramps and
+        ``0`` otherwise, as an int array. Down-ramps are the
+        operationally dangerous direction; up-ramps matter for
+        curtailment.
 
     Returns
     -------
     ndarray
-        Boolean mask, or int8 direction array when ``signed`` is True. The
-        first ``window_steps`` entries are always non-events, since no trailing
-        window exists for them.
+        Boolean mask, or int8 direction array when ``signed`` is True.
+        The first ``window_steps`` entries are always non-events, since
+        no trailing window exists for them.
     """
     if window_steps < 1:
         raise ValueError(f"window_steps must be >= 1, got {window_steps}")
@@ -115,7 +120,9 @@ def detect_ramps(
     g = np.asarray(ghi, dtype=float).ravel()
     cs = np.asarray(clearsky_ghi, dtype=float).ravel()
     if g.shape != cs.shape:
-        raise ValueError(f"shape mismatch: ghi {g.shape} vs clearsky {cs.shape}")
+        raise ValueError(
+            f"shape mismatch: ghi {g.shape} vs clearsky {cs.shape}"
+        )
 
     n = g.size
     delta = np.full(n, np.nan, dtype=float)
@@ -147,18 +154,19 @@ def ramp_detection_lead_time(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Match predicted ramps to observed ramps within a tolerance.
 
-    Exact-timestep agreement is too strict to be meaningful: a forecast that
-    calls a ramp one step early is operationally a success, not a miss. Each
-    observed ramp is matched to the nearest unclaimed predicted ramp within
-    +/- ``tolerance_steps``, greedily and one-to-one, so that a model spraying
-    predictions cannot claim the same event twice.
+    Exact-timestep agreement is too strict to be meaningful: a forecast
+    that calls a ramp one step early is operationally a success, not a
+    miss. Each observed ramp is matched to the nearest unclaimed
+    predicted ramp within +/- ``tolerance_steps``, greedily and
+    one-to-one, so that a model spraying predictions cannot claim the
+    same event twice.
 
     Returns
     -------
     (matched_observed_idx, lead_times_min)
-        Indices of observed ramps that were detected, and the corresponding
-        lead time in minutes. Positive lead time means the prediction came
-        *before* the observed event.
+        Indices of observed ramps that were detected, and the
+        corresponding lead time in minutes. Positive lead time means the
+        prediction came *before* the observed event.
     """
     obs_idx = np.flatnonzero(np.asarray(observed_ramp, dtype=bool).ravel())
     pred_idx = np.flatnonzero(np.asarray(predicted_ramp, dtype=bool).ravel())
@@ -175,8 +183,8 @@ def ramp_detection_lead_time(
         eligible = (np.abs(offsets) <= tolerance_steps) & ~claimed
         if not eligible.any():
             continue
-        # Nearest eligible prediction; ties resolve to the earlier one, which
-        # is the conservative choice for a lead-time claim.
+        # Nearest eligible prediction; ties resolve to the earlier one,
+        # which is the conservative choice for a lead-time claim.
         candidates = np.flatnonzero(eligible)
         best = candidates[np.argmin(np.abs(offsets[candidates]))]
         claimed[best] = True
@@ -199,10 +207,11 @@ def ramp_metrics(
 ) -> RampMetrics:
     """Precision / recall / F1 / mean lead time for ramp detection.
 
-    Both the observed and the predicted ramp masks are derived with the *same*
-    definition applied to the observed and forecast series respectively, so the
-    comparison asks the operationally meaningful question: when the real world
-    ramped, did the forecast series ramp too?
+    Both the observed and the predicted ramp masks are derived with the
+    *same* definition applied to the observed and forecast series
+    respectively, so the comparison asks the operationally meaningful
+    question: when the real world ramped, did the forecast series ramp
+    too?
 
     Interpretation guidance for the results chapter:
 
@@ -237,7 +246,11 @@ def ramp_metrics(
 
     precision = n_tp / n_pred if n_pred else float("nan")
     recall = n_tp / n_obs if n_obs else float("nan")
-    if np.isfinite(precision) and np.isfinite(recall) and (precision + recall) > 0:
+    if (
+        np.isfinite(precision)
+        and np.isfinite(recall)
+        and (precision + recall) > 0
+    ):
         f1 = 2.0 * precision * recall / (precision + recall)
     else:
         f1 = float("nan")
@@ -249,7 +262,9 @@ def ramp_metrics(
         precision=float(precision),
         recall=float(recall),
         f1=float(f1),
-        mean_lead_time_min=float(np.mean(leads)) if leads.size else float("nan"),
+        mean_lead_time_min=(
+            float(np.mean(leads)) if leads.size else float("nan")
+        ),
         n_observed=n_obs,
         n_predicted=n_pred,
         n_true_positive=n_tp,
