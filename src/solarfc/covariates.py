@@ -72,6 +72,7 @@ __all__ = [
     "calendar_features",
     "build_known_future",
     "known_future_columns",
+    "load_fitted_error_models",
 ]
 
 #: The three known-future regimes. Order is lower bound, operational, ceiling.
@@ -214,11 +215,23 @@ class ErrorModel:
     correlation_hours: float = 6.0
     lower_bound: float | None = None
     upper_bound: float | None = None
+    #: Systematic offset between the forecast and the field being perturbed.
+    #: Measured against ERA5, most of the total error is a lead-independent
+    #: offset from model bias and resolution mismatch rather than forecast
+    #: decay. A bias is a shift, not zero-mean noise, so applying it as noise
+    #: would understate how wrong the input actually is.
+    bias_0: float = 0.0
+    bias_growth: float = 0.0
 
     def sigma_at(self, lead_hours):
         """Error standard deviation at each lead time, saturating at sigma_max."""
         lead = np.asarray(lead_hours, dtype=float)
         return np.minimum(self.sigma_0 + self.growth_rate * lead, self.sigma_max)
+
+    def bias_at(self, lead_hours):
+        """Systematic offset at each lead time."""
+        lead = np.asarray(lead_hours, dtype=float)
+        return self.bias_0 + self.bias_growth * lead
 
 
 def _correlated_noise(n: int, correlation_steps: float, rng) -> np.ndarray:
@@ -258,13 +271,13 @@ def degrade(
     """
     rng = np.random.default_rng() if rng is None else rng
     v = np.asarray(values, dtype=float).ravel()
-    sigma = model.sigma_at(lead_hours)
-    sigma = np.broadcast_to(np.asarray(sigma, dtype=float), v.shape)
+    sigma = np.broadcast_to(np.asarray(model.sigma_at(lead_hours), dtype=float), v.shape)
+    bias = np.broadcast_to(np.asarray(model.bias_at(lead_hours), dtype=float), v.shape)
 
     correlation_steps = model.correlation_hours * 60.0 / STEP_MINUTES
     noise = _correlated_noise(v.size, correlation_steps, rng)
 
-    out = v + sigma * noise
+    out = v + bias + sigma * noise
     if model.lower_bound is not None:
         out = np.maximum(out, model.lower_bound)
     if model.upper_bound is not None:
@@ -272,12 +285,32 @@ def degrade(
     return out
 
 
-#: Placeholder parameters, pending the JMA measurement step.
+def load_fitted_error_models(path=None) -> dict[str, ErrorModel]:
+    """Load error models fitted to measured JMA GSM forecast error.
+
+    Produced by ``scripts/pull_jma_forecasts.py`` followed by
+    ``solarfc.nwp_error.fit_all_sites``. Falls back to the provisional
+    parameters when the fit has not been run, so the pipeline still works on a
+    fresh checkout -- but anything reported must use the fitted values.
+    """
+    import json
+
+    from .config import PROCESSED_DIR
+
+    path = (PROCESSED_DIR / "nwp_error" / "error_models.json") if path is None else path
+    if not path.exists():
+        return dict(PROVISIONAL_ERROR_MODELS)
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return {name: ErrorModel(**params) for name, params in raw.items()}
+
+
+#: Placeholder parameters, used only when the fitted models are unavailable.
 #:
-#: These are deliberately NOT used for any reported result until replaced by
-#: values fitted to measured JMA GSM error. They exist so the pipeline can be
-#: built and tested end to end; using them for a headline number would be
-#: exactly the asserted-not-measured calibration this design avoids.
+#: These are deliberately NOT for any reported result. The fitted values come
+#: from measured JMA GSM error over the seven study sites -- see
+#: ``solarfc.nwp_error``. Using these for a headline number would be exactly
+#: the asserted-not-measured calibration this design exists to avoid.
 PROVISIONAL_ERROR_MODELS: dict[str, ErrorModel] = {
     "era5_cloud_cover": ErrorModel(
         "era5_cloud_cover", 0.10, 0.004, 0.35, 6.0, 0.0, 1.0
@@ -358,7 +391,7 @@ def build_known_future(
                 "lead-time dependent and applying it without lead times would "
                 "silently use a single error magnitude for every horizon"
             )
-        models = PROVISIONAL_ERROR_MODELS if error_models is None else error_models
+        models = load_fitted_error_models() if error_models is None else error_models
         rng = np.random.default_rng() if rng is None else rng
         nwp = nwp.copy()
         for column in NWP_FEATURES:
