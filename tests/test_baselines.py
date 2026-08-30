@@ -99,6 +99,43 @@ class TestSmartPersistence:
         # Carried CSI (0.6) rescaled by clear-sky at the target time.
         assert carried[150] == pytest.approx(480.0)
 
+    def test_twilight_csi_is_not_carried_across_the_night(self):
+        """A low-sun sample must not become the value carried overnight.
+
+        Regression test. Carrying indiscriminately cost the reference 76 W/m^2
+        of MAE at 6 h and ~145 at 12 h and 36 h on KL 2020, because a twilight
+        ratio computed against a near-zero clear-sky value was then rescaled by
+        a full midday envelope.
+        """
+        cs, ghi = self._dusk_series()
+        # Horizon 72 puts the origin at index 78, inside the night that follows
+        # the dusk sample -- so the prediction depends entirely on what was
+        # carried.
+        out = B.smart_persistence(ghi, cs, 72, carry_overnight=True)
+        assert out[150] == pytest.approx(800.0 * 0.6)
+
+    def test_carry_floor_is_configurable(self):
+        """Lowering the floor admits the twilight sample, proving it is the
+        floor doing the work rather than something incidental."""
+        cs, ghi = self._dusk_series()
+        admitted = B.smart_persistence(ghi, cs, 72, carry_floor=10.0)
+        assert admitted[150] == pytest.approx(800.0 * 1.6)
+
+    @staticmethod
+    def _dusk_series():
+        """Two daylit blocks separated by a night, with one bad dusk sample.
+
+        Layout: indices 0-71 day, 72 dusk, 73-143 night, 144-215 day. Reliable
+        daytime CSI is 0.6; the dusk sample reads a spurious 1.6 because its
+        clear-sky denominator is near zero.
+        """
+        day = np.full(72, 800.0)
+        dusk = np.array([50.0])
+        night = np.zeros(71)
+        cs = np.concatenate([day, dusk, night, day])
+        ghi = np.concatenate([day * 0.6, dusk * 1.6, night, day * 0.6])
+        return cs, ghi
+
     def test_forward_fill_leaves_leading_nans(self):
         out = B._forward_fill(np.array([np.nan, np.nan, 0.5, np.nan, np.nan]))
         assert np.isnan(out[0]) and np.isnan(out[1])

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .config import DAYTIME_CLEARSKY_FLOOR
+from .config import CSI_CARRY_FLOOR, CSI_CLIP_MAX, DAYTIME_CLEARSKY_FLOOR
 
 __all__ = [
     "clear_sky_index",
@@ -37,17 +37,33 @@ def clear_sky_index(
     clearsky_ghi,
     *,
     floor: float = DAYTIME_CLEARSKY_FLOOR,
-    clip_max: float = 1.5,
+    clip_max: float = CSI_CLIP_MAX,
 ):
     """CSI = GHI / clear-sky GHI, guarded at low sun and clipped above.
 
     Returns NaN where clear-sky GHI is at or below ``floor``: the ratio is
     meaningless at night and numerically explosive near sunrise and sunset.
 
-    Values above 1 are physically real — cloud-edge enhancement genuinely
-    exceeds the clear-sky envelope — so the clip is set at ``clip_max`` = 1.5
-    rather than 1.0. Clipping at 1.0 would destroy exactly the over-irradiance
-    events that matter for ramp analysis.
+    On the clip
+    -----------
+    In a *measured* irradiance series, values above 1 are physically real:
+    cloud-edge enhancement genuinely exceeds the clear-sky envelope, and
+    clipping at 1.0 would destroy the over-irradiance events that matter for
+    ramp analysis.
+
+    That is not true of this project's data, and the difference is worth
+    stating. NSRDB GHI never exceeds NSRDB clear-sky — the maximum ratio is
+    exactly 1.000000 at every site, with 20–34% of daytime samples identically
+    equal — and Solcast behaves the same way. Both are transmittance retrievals,
+    ``GHI = clearsky * tau`` with ``tau <= 1``, so neither can represent
+    enhancement at all. Against the *fitted* Ineichen envelope the index
+    therefore stays within [0, 1] up to calibration residue.
+
+    The clip is consequently set at ``config.CSI_CLIP_MAX`` = 2.0, comfortably
+    above the fitted 99th percentile of 1.585, so it effectively never binds. It
+    guards against a pathological twilight ratio reaching a squared loss; it is
+    not truncating physics, because the physics it would truncate does not occur
+    here. See :mod:`solarfc.clearsky`.
     """
     g = np.asarray(ghi, dtype=float).ravel()
     cs = np.asarray(clearsky_ghi, dtype=float).ravel()
@@ -98,6 +114,7 @@ def smart_persistence(
     *,
     floor: float = DAYTIME_CLEARSKY_FLOOR,
     carry_overnight: bool = True,
+    carry_floor: float = CSI_CARRY_FLOOR,
 ):
     """``forecast(t + h) = csi(origin) * clearsky_ghi(t + h)``.
 
@@ -126,13 +143,41 @@ def smart_persistence(
     Set ``carry_overnight=False`` for the strict instantaneous definition, which
     is what some papers use; it is retained so published numbers that assume it
     can still be reproduced.
+
+    Which value gets carried
+    ------------------------
+    Carrying the last CSI at *any* sun angle turns out to matter a great deal,
+    because the clear-sky index is least trustworthy exactly where the carry
+    starts. Twilight samples sit near the bottom of the clear-sky envelope, so
+    small errors in that envelope produce large errors in the ratio -- the
+    samples that hit the CSI clip have a median clear-sky of 38 W/m^2 against
+    651 for daytime as a whole. Carrying one of those across the night and then
+    multiplying it by a full midday clear-sky value scales the artefact up with
+    the sun.
+
+    Measured on KL 2020, carrying indiscriminately costs the reference 76 W/m^2
+    of MAE at 6 h, 144 at 12 h and 147 at 36 h -- the three horizons whose
+    origins are at night. A reference that weak would flatter every model
+    measured against it, which is the failure the plan's warning about naive
+    persistence exists to prevent.
+
+    So only samples above ``carry_floor`` are eligible to be carried. Below it
+    the instantaneous value is discarded in favour of the last reliable one.
+    The threshold is not tuned: 100 W/m^2 is where the CSI clip was measured to
+    stop binding altogether. The cost at short horizons, where the origin is
+    already daylit, is 0.7 W/m^2 at 20 minutes.
     """
     if horizon_steps < 1:
         raise ValueError(f"horizon_steps must be >= 1, got {horizon_steps}")
 
     cs = np.asarray(clearsky_ghi, dtype=float).ravel()
     csi = clear_sky_index(ghi, clearsky_ghi, floor=floor)
-    origin_csi = _forward_fill(csi) if carry_overnight else csi
+
+    if carry_overnight:
+        reliable = np.where(cs > carry_floor, csi, np.nan)
+        origin_csi = _forward_fill(reliable)
+    else:
+        origin_csi = csi
 
     out = np.full(cs.shape, np.nan, dtype=float)
     if cs.size > horizon_steps:
