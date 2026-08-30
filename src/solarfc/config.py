@@ -217,6 +217,48 @@ DAYTIME_CLEARSKY_FLOOR = 20.0
 #: Prefer the normalised metrics (nMAE / nRMSE) over MAPE when reporting.
 MAPE_GHI_FLOOR = 50.0
 
+#: The DAYTIME_CLEARSKY_FLOOR above is equivalent to the field's de facto
+#: standard low-sun filter of solar zenith angle < 85 degrees. Measured at Kuala
+#: Lumpur over 2016-2020, the two select 123,569 and 123,988 samples -- the same
+#: filter, expressed in different units. Recorded here so the equivalence is
+#: documented rather than rediscovered.
+EQUIVALENT_ZENITH_CUTOFF_DEG = 85.0
+
+# --------------------------------------------------------------------------
+# Clear-sky index
+# --------------------------------------------------------------------------
+#
+# NSRDB GHI never exceeds NSRDB clear-sky: the maximum ratio is exactly
+# 1.000000 at every site and 20-34% of daytime samples are identically equal.
+# Solcast behaves identically. Both are transmittance retrievals of the form
+# GHI = clearsky * tau with tau <= 1, so neither can represent cloud
+# enhancement. The clear-sky index in this project is therefore retrieved cloud
+# transmittance, and any value above 1 against the *fitted* Ineichen envelope is
+# calibration residue rather than over-irradiance.
+#
+# The clip is set well above the fitted 99th percentile (1.585 at KL) so that it
+# effectively never binds. It exists only to stop a pathological twilight ratio
+# entering a squared loss -- not to truncate physics, since the physics it was
+# originally written to preserve provably does not occur in this data.
+
+CSI_CLIP_MAX = 2.0
+
+#: Minimum clear-sky GHI for a clear-sky index to be eligible for carrying
+#: forward across the night (see ``baselines.smart_persistence``).
+#:
+#: Twilight samples sit near the bottom of the clear-sky envelope, so a small
+#: error there is a large error in the ratio -- samples that hit the CSI clip
+#: have a median clear-sky of 38 W/m^2 against 651 for daytime overall. Carrying
+#: one across the night and rescaling it by a midday clear-sky value amplifies
+#: the artefact. 100 W/m^2 is where the clip was measured to stop binding
+#: entirely, so it is an observed threshold rather than a tuned one.
+CSI_CARRY_FLOOR = 100.0
+
+#: Fitting the clear-sky envelope per site is standard practice; see
+#: ``solarfc.clearsky``. Kept here so the pipeline's single source of truth
+#: records that reported results must not use pvlib's default climatology.
+REQUIRE_FITTED_TURBIDITY = True
+
 # --------------------------------------------------------------------------
 # Ramp events
 # --------------------------------------------------------------------------

@@ -9,6 +9,9 @@ data/processed/*
 # are small, and without them the realistic known-future track could not be
 # reproduced without re-pulling three years of JMA forecasts.
 !data/processed/nwp_error/
+# Same reasoning for the fitted Linke turbidity: one float per site, and
+# every clear-sky index in the project depends on it.
+!data/processed/clearsky/
 __pycache__/
 *.pyc
 *.egg-info/

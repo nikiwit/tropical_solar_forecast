@@ -1,0 +1,100 @@
+{
+  "bangkok": {
+    "converged": true,
+    "default_turbidity": 4.5112,
+    "fit_years": [
+      2016,
+      2017,
+      2018
+    ],
+    "iterations": 3,
+    "n_clear": 17065,
+    "rmse_clear": 26.176,
+    "site": "bangkok",
+    "turbidity": 4.2577
+  },
+  "ho_chi_minh": {
+    "converged": true,
+    "default_turbidity": 4.7357,
+    "fit_years": [
+      2016,
+      2017,
+      2018
+    ],
+    "iterations": 3,
+    "n_clear": 11598,
+    "rmse_clear": 22.209,
+    "site": "ho_chi_minh",
+    "turbidity": 3.7881
+  },
+  "jakarta": {
+    "converged": true,
+    "default_turbidity": 4.4603,
+    "fit_years": [
+      2016,
+      2017,
+      2018
+    ],
+    "iterations": 3,
+    "n_clear": 11404,
+    "rmse_clear": 20.071,
+    "site": "jakarta",
+    "turbidity": 4.2694
+  },
+  "kota_kinabalu": {
+    "converged": true,
+    "default_turbidity": 4.3882,
+    "fit_years": [
+      2016,
+      2017,
+      2018
+    ],
+    "iterations": 3,
+    "n_clear": 8676,
+    "rmse_clear": 15.032,
+    "site": "kota_kinabalu",
+    "turbidity": 3.7355
+  },
+  "kuala_lumpur": {
+    "converged": true,
+    "default_turbidity": 4.692,
+    "fit_years": [
+      2016,
+      2017,
+      2018
+    ],
+    "iterations": 3,
+    "n_clear": 6118,
+    "rmse_clear": 17.251,
+    "site": "kuala_lumpur",
+    "turbidity": 3.9172
+  },
+  "manila": {
+    "converged": true,
+    "default_turbidity": 4.0858,
+    "fit_years": [
+      2016,
+      2017,
+      2018
+    ],
+    "iterations": 4,
+    "n_clear": 6100,
+    "rmse_clear": 17.009,
+    "site": "manila",
+    "turbidity": 3.4166
+  },
+  "penang": {
+    "converged": true,
+    "default_turbidity": 4.1886,
+    "fit_years": [
+      2016,
+      2017,
+      2018
+    ],
+    "iterations": 3,
+    "n_clear": 9017,
+    "rmse_clear": 17.326,
+    "site": "penang",
+    "turbidity": 3.9688
+  }
+}

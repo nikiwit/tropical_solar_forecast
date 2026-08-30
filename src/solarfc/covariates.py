@@ -122,8 +122,11 @@ def known_future_columns(track: str) -> tuple[str, ...]:
 def solar_geometry(index: pd.DatetimeIndex, site: Site | str) -> pd.DataFrame:
     """Solar position and clear-sky irradiance from timestamp and coordinates.
 
-    Uses pvlib: SPA for solar position, Ineichen with the Linke turbidity
-    climatology for clear-sky GHI.
+    Uses pvlib: SPA for solar position, Ineichen for clear-sky GHI with the
+    site's **fitted** Linke turbidity (see :mod:`solarfc.clearsky`). pvlib's
+    default climatology runs 4.4-7.6% low at these tropical sites, and this
+    envelope is the denominator of every clear-sky index in the project, so the
+    default would put a systematic multiplicative error into the target itself.
 
     These are the backbone of the known-future path. They carry no weather
     information at all, but they encode the hard physical constraint that
@@ -131,6 +134,8 @@ def solar_geometry(index: pd.DatetimeIndex, site: Site | str) -> pd.DataFrame:
     which is why even the NWP-free track is not vacuous.
     """
     import pvlib
+
+    from .clearsky import clearsky_ghi
 
     if isinstance(site, str):
         site = SITES_BY_KEY[site]
@@ -143,12 +148,11 @@ def solar_geometry(index: pd.DatetimeIndex, site: Site | str) -> pd.DataFrame:
     )
 
     position = location.get_solarposition(index)
-    clearsky = location.get_clearsky(index, model="ineichen")
 
     out = pd.DataFrame(index=index)
     out["solar_zenith"] = position["zenith"].to_numpy()
     out["solar_azimuth"] = position["azimuth"].to_numpy()
-    out["clearsky_ghi"] = clearsky["ghi"].to_numpy()
+    out["clearsky_ghi"] = clearsky_ghi(index, site).to_numpy()
     # Cosine of zenith is the geometric driver of irradiance and is better
     # behaved for a network than the angle: it varies smoothly through solar
     # noon and goes negative at night rather than saturating at 90 degrees.
