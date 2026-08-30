@@ -10,6 +10,7 @@ config      Sites, horizons, monsoon phases, split years, thresholds.
 data        NSRDB Himawari loading and grid-continuity checks.
 splits      Chronological splits, monsoon labelling, transition windows.
 metrics     Point, skill and probabilistic metrics.
+ramp        Ramp-event detection and scoring.
 baselines   Naive persistence, smart persistence, clear-sky.
 """
 
@@ -17,13 +18,14 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-from . import baselines, config, data, metrics, splits
+from . import baselines, config, data, metrics, ramp, splits
 
 __all__ = [
     "baselines",
     "config",
     "data",
     "metrics",
+    "ramp",
     "splits",
     "__version__",
 ]
