@@ -1,6 +1,6 @@
 # Tropical Solar Forecast — Working Documentation
 
-Last updated: 2026-08-30
+Last updated: 2026-08-30 (Phase 2 infrastructure complete)
 
 > **The planning document is not in this repository.** It lives at
 > `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Second Brain/6 - University/FYP/FYP Plan.md`
@@ -59,7 +59,7 @@ Built and frozen **before** any model is trained, so every baseline, every ablat
 variant and the C++ engine are scored by identical code.
 
 ```bash
-/opt/anaconda3/envs/fyp/bin/python -m pytest      # 73 tests
+/opt/anaconda3/envs/fyp/bin/python -m pytest      # 237 tests
 ```
 
 > **Note:** `conda activate fyp` can silently fall through to `virt_env` depending on
@@ -76,6 +76,12 @@ variant and the C++ engine are scored by identical code.
 | `baselines.py` | Naive persistence, smart persistence, clear-sky, clear-sky index |
 | `era5.py` | ERA5 zip handling, nearest-gridpoint extraction, upsampling, unit derivation |
 | `covariates.py` | Known-future decoder inputs in three NWP tracks, forecast-error degradation |
+| `clearsky.py` | Per-site Linke turbidity fit, calibrated Ineichen envelope |
+| `features.py` | Observed-past features — lags, rolling stats, CSI, `delta_csi`, FULL/DEPLOYABLE |
+| `scaling.py` | Per-site z-score, fitted on train years, serialised for SolarInfer |
+| `dataset.py` | Supervised assembly — joins encoder and decoder sides per horizon |
+| `results.py` | The one results schema every phase appends to |
+| `models/gbdt.py` | XGBoost and LightGBM, direct multi-horizon |
 
 ### Design decisions worth knowing
 
@@ -96,6 +102,60 @@ persistence at 24h is the same time of day yesterday.
 samples at KL, so RMSE is dominated by unremarkable timesteps and a model can post an
 excellent RMSE while missing every convective collapse. This is also the test Module A must
 pass — if the monsoon gate works anywhere it should show up here.
+
+---
+
+## Clear-Sky Calibration (and what it exposed)
+
+`scripts/fit_turbidity.py` — run once, output committed.
+
+pvlib's default Linke turbidity climatology **runs 4.4–7.6% low** at all seven
+sites. Since that envelope is the denominator of every clear-sky index here, the
+default put a systematic multiplicative error straight into the target.
+
+| Site | pvlib default | Fitted | RMSE on clear periods |
+|---|---|---|---|
+| kuala_lumpur | 4.69 | **3.917** | 17.3 W/m² |
+| penang | 4.19 | **3.969** | 17.3 |
+| kota_kinabalu | 4.39 | **3.736** | 15.0 |
+| ho_chi_minh | 4.74 | **3.788** | 22.2 |
+| bangkok | 4.51 | **4.258** | 26.2 |
+| jakarta | 4.46 | **4.269** | 20.1 |
+| manila | 4.09 | **3.417** | 17.0 |
+
+Fitted against observed GHI on Reno-Hansen detected-clear periods — what a plant
+could do from its own pyranometer, so the calibration stays inside the
+DEPLOYABLE story. Cross-checked against a grid search on NSRDB clear-sky: the
+two agree within 0.18 at six of seven sites.
+
+> **Ineichen, not McClear.** Yang (2020) compares Ineichen-Perez, McClear and
+> REST2 and finds forecast RMSE is essentially unchanged by the choice, so it
+> should be made on accessibility. He recommends McClear — but that is a web
+> service, and SolarInfer runs offline on a Pi. Ineichen plus one fitted float
+> per site is the accessible option *here*.
+
+### Finding: NSRDB cannot represent cloud enhancement
+
+Max GHI / clear-sky ratio is **exactly 1.000000** at every site, with **20–34%
+of daytime samples identically equal**. Solcast behaves the same way (max
+exactly 1.000). Both are transmittance retrievals, `GHI = clearsky × τ`, `τ ≤ 1`.
+
+Two consequences for Chapter 4:
+
+1. The clear-sky index here **is** retrieved cloud transmittance. Values above 1
+   against the fitted envelope are calibration residue, not over-irradiance.
+2. **The benchmark cannot evaluate cloud-enhancement events**, which produce
+   some of the sharpest positive ramps in tropical conditions. Ramp results
+   cover downward and moderate upward ramps only. This is a property of the
+   evaluation target, not of any model tested.
+
+The CSI clip was therefore raised 1.5 → **2.0**: it was written to preserve
+physics that provably does not occur in this data. At 2.0 it binds on
+0.09–0.29% per site.
+
+Also noted: the existing daytime mask (`clear-sky > 20 W/m²`) is **equivalent to
+the field's standard zenith < 85° cutoff** — at KL they select 123,569 and
+123,988 samples. Same filter, different units. No change needed.
 
 ### Specification bugs found during implementation
 
@@ -474,10 +534,17 @@ Not useful for training (no historical obs, no solar radiation data). Intended u
 - [x] ERA5 upsampling pipeline — zip handling, nearest gridpoint, accumulation shift verified
 - [x] ERA5 cache built to Parquet, 7 sites × 263,083 rows, validated against NSRDB
 - [x] Known-future covariate builder — three tracks (NWP-free, realistic, perfect-foresight)
-- [ ] Measure real NWP error from JMA archived forecasts, fit the degradation model
+- [x] Measure real NWP error from JMA archived forecasts, fit the degradation model
+- [x] Per-site Linke turbidity calibration (`clearsky.py`, artefact committed)
+- [x] Feature engineering pipeline (lags, rolling stats, FULL vs DEPLOYABLE sets)
+- [x] Per-site z-score standardiser, serialisable for SolarInfer
+- [x] Supervised assembly with leakage guards asserted in tests
+- [x] Results schema — one long-format table for every phase
+- [x] Reproducible baselines script (replaces the interactive reference table)
+- [x] XGBoost / LightGBM trainers + resumable run harness
+- [ ] **Run the full XGBoost grid** (924 models — both targets, then freeze)
+- [ ] LightGBM on the winning target (462 models)
 - [ ] Operational NWP baseline (JMA GSM archived GHI)
-- [ ] Feature engineering pipeline (lags, rolling stats, FULL vs DEPLOYABLE sets)
-- [ ] XGBoost / LightGBM (direct, one model per horizon × 11 horizons)
 - [ ] LSTM encoder-decoder, BiLSTM-GRU, physics-guided CNN-BiLSTM (MIMO)
 - [ ] Chronos-2 zero-shot baseline
 - [ ] Cloud-driven NWP baseline for the 2020 benchmark
@@ -487,14 +554,38 @@ Not useful for training (no historical obs, no solar radiation data). Intended u
 
 ## Resume Here
 
-**State as of 2026-08-30:** Phase 1 complete, Phase 2 roughly 55% done.
-**Zero models trained** — no accuracy results of any kind yet.
+**State as of 2026-08-30:** Phase 1 complete, Phase 2 infrastructure complete
+and validated. The full training grid has **not** been run yet.
 
 ### Run this first
 
 ```bash
-/opt/anaconda3/envs/fyp/bin/python -m pytest      # expect 158 passing
+/opt/anaconda3/envs/fyp/bin/python -m pytest      # expect 237 passing
 ```
+
+### The Phase 2 run order
+
+```bash
+# 1. Clear-sky calibration — once, ~20s. Output is committed.
+python scripts/fit_turbidity.py
+
+# 2. Reference baselines — ~2-3 min for all 7 sites.
+python scripts/run_baselines.py
+
+# 3. Smoke test the trainer before committing to the full grid — ~30s.
+python scripts/train_gbdt.py --smoke
+
+# 4. Full XGBoost grid: 7 sites x 11 horizons x 3 tracks x 2 feature
+#    sets x 2 targets = 924 models, roughly 1-1.5 h. Resumable.
+python scripts/train_gbdt.py
+
+# 5. LightGBM on whichever target won, once step 4 reports it.
+python scripts/train_gbdt.py --algorithm lightgbm --targets csi
+```
+
+Everything appends to `data/processed/results/results.csv`. The harness skips
+combinations already present, so an interrupted run continues where it stopped
+rather than starting over.
 
 `conda activate fyp` can silently fall through to `virt_env` depending on shell
 state. Use the absolute interpreter path, or check `which python` after
@@ -504,10 +595,26 @@ activating.
 
 | Component | Evidence |
 |---|---|
-| Evaluation framework | 158 tests, metrics frozen before any model |
+| Evaluation framework | 237 tests, metrics frozen before any model |
 | ERA5 pipeline + cache | 7 sites × 263,083 rows; ssrd vs NSRDB GHI r = 0.897–0.946 |
 | Known-future covariates | Three tracks, leakage guards asserted in tests |
 | NWP error models | Fitted to measured JMA error, validated to within 0.2% |
+| Clear-sky calibration | 7 sites fitted; two independent methods agree within 0.18 at 6/7 |
+| Feature pipeline | 68 FULL / 58 DEPLOYABLE columns; tamper test proves no future leaks back |
+| GBDT harness | Tracks order correctly at every horizon; beats climatology at 6h and 36h |
+
+**Track separation on KL (the check that the whole design rests on)** — MAE,
+`csi` target, FULL features:
+
+| Horizon | nwp_free | realistic | perfect |
+|---|---|---|---|
+| 20 min | 64.5 | 64.6 | 64.2 |
+| 6 h | 109.2 | 105.6 | 101.4 |
+| 36 h | 116.1 | 108.0 | 102.3 |
+
+A weather forecast buys nothing 20 minutes out and a great deal at 36 h, with
+`realistic` sitting properly between the bounds — which is what the fitted
+degradation model was built to produce.
 
 Cached data is gitignored and must be rebuilt on a fresh machine:
 
@@ -526,14 +633,35 @@ and tells you whether the data supports the horizon set at all — before any
 Transformer work. If XGBoost cannot beat smart persistence at 6 h, nothing
 downstream will either.
 
-Reference numbers to beat (KL 2020, daytime only, smart persistence):
+Reference numbers to beat — KL 2020, daytime only, regenerate with
+`python scripts/run_baselines.py`. **These supersede the numbers previously
+recorded here**, which were produced interactively and used NSRDB's clear-sky
+envelope for the daytime mask; the mask is now the fitted Ineichen envelope, so
+the sample set differs slightly.
 
-| Horizon | MAE | RMSE | FS vs naive |
-|---|---|---|---|
-| 20 min | 60.9 | 110.5 | 0.079 |
-| 1 h | 91.8 | 148.2 | 0.255 |
-| 6 h | 178.8 | 255.1 | 0.512 |
-| 24 h | 144.4 | 207.1 | 0.003 |
+Two smart-persistence variants. The NSRDB one is the **primary FS reference** —
+FS is a ratio, so the honest choice is the strongest available reference. The
+Ineichen one is what a plant could run without a satellite, and the gap between
+them is the clear-sky calibration penalty.
+
+| Horizon | MAE | RMSE | FS vs naive | MAE (Ineichen) | Gap |
+|---|---|---|---|---|---|
+| 20 min | 63.7 | 112.5 | 0.075 | 65.6 | +1.8 |
+| 30 min | 75.1 | 126.5 | 0.121 | 77.3 | +2.2 |
+| 1 h | 96.8 | 151.9 | 0.244 | 99.8 | +3.0 |
+| 2 h | 125.6 | 186.5 | 0.388 | 130.6 | +5.0 |
+| 3 h | 148.8 | 215.7 | 0.450 | 155.6 | +6.8 |
+| 6 h | 196.2 | 276.8 | 0.472 | 209.0 | +12.8 |
+| 12 h | 207.4 | 287.5 | 0.440 | 225.0 | +17.7 |
+| 18 h | 196.1 | 277.7 | 0.435 | 210.9 | +14.8 |
+| 24 h | 148.0 | 209.8 | 0.003 | 149.2 | +1.2 |
+| 36 h | 209.1 | 290.8 | 0.434 | 226.6 | +17.4 |
+| 48 h | 149.2 | 210.0 | 0.004 | 150.7 | +1.6 |
+
+FS vs naive collapses at 24 h and 48 h because naive persistence at exactly 24 h
+is the same clock time yesterday, which is a strong reference. The gap column
+peaks at the horizons whose forecast origin falls at night (12 h, 36 h), where
+the clear-sky envelope has to be extrapolated furthest.
 
 ### Open items needing a decision or an action
 
