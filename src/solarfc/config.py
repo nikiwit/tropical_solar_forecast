@@ -42,7 +42,7 @@ STEP_MINUTES = 10
 # the plan explicitly scopes out true nowcasting as requiring sky-camera or
 # real-time optical-flow input, so the scope statement remains consistent.
 
-HORIZON_STEPS: tuple[int, ...] = (2, 3, 6, 12, 18, 36, 72, 108, 144)
+HORIZON_STEPS: tuple[int, ...] = (2, 3, 6, 12, 18, 36, 72, 108, 144, 216, 288)
 
 HORIZON_LABELS: tuple[str, ...] = (
     "20min",
@@ -54,9 +54,25 @@ HORIZON_LABELS: tuple[str, ...] = (
     "12h",
     "18h",
     "24h",
+    "36h",
+    "48h",
 )
 
 assert len(HORIZON_STEPS) == len(HORIZON_LABELS)
+
+#: Horizons required by the Malaysian LSS grid code, for the operational tables.
+#:
+#: The Rolling 24 Hours Forecast is a 24 h submission at 15-minute intervals,
+#: re-issued every half hour. The Declared Daily Capacity is submitted day-ahead
+#: by 10:00 and must cover to the end of the following day, which is 38 h out --
+#: hence 36 h and 48 h, which the original 24 h ceiling could not reach.
+REGULATORY_HORIZON_LABELS: tuple[str, ...] = ("24h", "36h", "48h")
+
+#: Reporting interval mandated by the Energy Commission for LSS submissions.
+#: Training runs on the native 10-minute grid because averaging to 15 minutes
+#: destroys ramp structure, which is a headline metric here; predictions are
+#: aggregated to 15 minutes for the operational tables.
+REPORTING_STEP_MINUTES: tuple[int, ...] = (10, 15)
 
 #: Minimum encoder lookback: 72 steps = 12 h. Abdul Rahman et al. (2026) find
 #: >=12 h optimal for Malaysian solar data.
@@ -219,3 +235,43 @@ RAMP_WINDOW_STEPS = 3
 #: rather than asserted.
 RAMP_THRESHOLD_SWEEP: tuple[float, ...] = (0.30, 0.40, 0.50, 0.60, 0.70)
 RAMP_WINDOW_SWEEP: tuple[int, ...] = (1, 3, 6)
+
+# --------------------------------------------------------------------------
+# Feature sets
+# --------------------------------------------------------------------------
+#
+# NSRDB supplies aerosol optical depth, ozone, an asymmetry parameter and a
+# cloud-type classification. No PV plant can measure any of these. A model that
+# depends on them scores well on this benchmark and cannot run on a real site,
+# and nothing in an accuracy table would reveal that -- so the deployable set is
+# a reported variant, not a footnote.
+#
+# DEPLOYABLE covers what IEC 61724-1 instrumentation actually provides. Under
+# the Malaysian LSS rules a site has at least one pyranometer and one full
+# weather station per 10 MWac (per 1 MW if distribution-connected), logging at
+# 15-minute resolution or better.
+
+#: NSRDB columns unavailable to any real plant.
+SATELLITE_ONLY_FEATURES: tuple[str, ...] = (
+    "Aerosol Optical Depth",
+    "Alpha",
+    "Ozone",
+    "Asymmetry",
+    "Cloud Type",
+    "Surface Albedo",
+)
+
+#: Measurable on site with IEC 61724-compliant instrumentation.
+DEPLOYABLE_NSRDB_FEATURES: tuple[str, ...] = (
+    "GHI",
+    "DNI",
+    "DHI",
+    "Clearsky GHI",
+    "Temperature",
+    "Dew Point",
+    "Relative Humidity",
+    "Pressure",
+    "Wind Speed",
+    "Wind Direction",
+    "Solar Zenith Angle",
+)
