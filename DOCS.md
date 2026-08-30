@@ -2,6 +2,55 @@
 
 Last updated: 2026-08-30
 
+> **The planning document is not in this repository.** It lives at
+> `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Second Brain/6 - University/FYP/FYP Plan.md`
+> and holds the contributions, novelty positioning, literature, phase actions and
+> risk register.
+>
+> Anything needed to *build* the project is in this file. Anything needed to
+> *write about* it is in the plan.
+
+---
+
+## Deployment Requirements (why the design is shaped this way)
+
+Malaysian Large Scale Solar operators are legally required to forecast, under the
+Energy Commission's [Guidelines on Large Scale Solar PV Plant](https://www.st.gov.my/sites/default/files/2026-02/Guidelines-on-Large-Scale-Solar-PV-Plant-for-Connection-to-Electricity-Network.pdf),
+Appendix B §10. These are obligations on the operator, not preferences.
+
+| Submission | Unit | Interval | Cadence |
+|---|---|---|---|
+| Rolling 24 Hours Forecast | **MWac** | **15 min** | 24 h ahead, updated **every half hour**, via web service to NLDC |
+| Declared Daily Capacity | MWac | 15 min | **Day-ahead by 10:00** — so 38 h out |
+| 9-day ahead | MWac | 15 min | Wednesdays before 12:30 |
+
+Site instrumentation: 1 pyranometer + 1 full weather station per 10 MWac
+(per 1 MW if distribution-connected), IEC 61724 Class A, ≥15-minute logging,
+telemetered via IEC 60870-5-104.
+
+**What this forced in the design:**
+
+| Requirement | Consequence |
+|---|---|
+| Day-ahead by 10:00 must reach 38 h | Horizons extended to **36 h and 48 h**. The old 24 h ceiling could not produce the required submission |
+| 15-minute mandated interval | Train at 10-min (preserves ramp structure), **report at both** |
+| Forecast must be MWac | **Contribution 4** — pvlib GHI→MWac chain as a deployment layer |
+| Web service is mandatory | REST endpoint is a **core deliverable**, no longer deferrable |
+| Plants have no AOD/ozone/cloud-type | **DEPLOYABLE vs FULL feature sets**, both reported |
+
+> **The feature gap is the one that would silently kill a deployment.** NSRDB
+> supplies aerosol optical depth, ozone, asymmetry and a cloud-type
+> classification. No plant can measure any of these. A model that leans on them
+> scores well here and cannot run on site, and no accuracy table would reveal it.
+> See `config.SATELLITE_ONLY_FEATURES` and `config.DEPLOYABLE_NSRDB_FEATURES`.
+
+**Cross-checked against AEMO (Australia)** to confirm these are representative
+rather than a local quirk. They are, and AEMO is stricter (5-minute dispatch).
+AEMO's accreditation test is **MAE_self ≤ MAE_incumbent *and* RMSE_self ≤
+RMSE_incumbent** — both required. So report MAE and RMSE jointly per horizon and
+never trade one against the other. AEMO also excludes night intervals from
+assessment, independently confirming the daytime-masking decision in `metrics.py`.
+
 ---
 
 ## Evaluation Framework (`src/solarfc/`)
@@ -61,6 +110,106 @@ pass — if the monsoon gate works anywhere it should show up here.
 - 52,704 rows, zero missing, uniform 10-minute grid, no irregular steps
 - 25,639 daytime samples (48.6%)
 - Ramp base rate 0.147 — by phase: NE 0.153, Inter-I 0.140, SW 0.147, Inter-II 0.124
+
+---
+
+## Known-Future Covariates and NWP Error
+
+### Three tracks, not two
+
+Every model trains and reports on three known-future regimes. The decoder spans
+the full 48 h maximum horizon in one pass with all horizons read from it, which is
+standard TFT and the natural design for a MIMO head.
+
+| Track | Known-future atmospheric inputs | What it measures |
+|---|---|---|
+| `nwp_free` | none — calendar and solar geometry only | Honest lower bound |
+| `realistic` | ERA5 degraded by **measured** forecast error | **The operational number** |
+| `perfect` | ERA5 unmodified | Optimistic ceiling |
+
+Reporting perfect-foresight numbers as operational accuracy is the most common
+criticism of solar forecasting papers, so **every results table must state which
+track it reports.**
+
+### The degradation is measured, not assumed
+
+Published NWP verification is overwhelmingly European or CONUS, where convective
+cloud behaves differently. Rather than borrow those numbers, forecast error was
+measured from archived JMA GSM forecasts over all seven sites, 2018–2020, via
+[Open-Meteo's Previous Runs API](https://open-meteo.com/en/docs/previous-runs-api).
+
+```bash
+python scripts/pull_jma_forecasts.py           # ~4 min, 21 requests
+python -c "from solarfc.nwp_error import fit_all_sites; ..."
+```
+
+Fitted models live in `data/processed/nwp_error/error_models.json` (committed —
+they are results, not raw data) and load via
+`covariates.load_fitted_error_models()`.
+
+**Two error definitions, both reported:**
+
+- **drift** — JMA at lead L vs its own lead-0 run. Model bias and resolution
+  cancel, isolating pure forecast decay. The clean number to quote for NWP skill.
+- **total** — JMA vs ERA5. What a deployed model actually experiences: trained on
+  ERA5, fed a real forecast, so the input differs by decay *plus* bias *plus*
+  resolution. Measured at **1.2–2.3× drift**, and it is what calibrates the
+  realistic track. Drift would leave the "realistic" track closer to
+  perfect-foresight than to reality.
+
+**Measured error (std, pooled across 7 sites, total mode):**
+
+| Variable | 24 h | 48 h | 72 h |
+|---|---|---|---|
+| Cloud cover (fraction) | 0.277 | 0.290 | 0.301 |
+| Temperature (K) | 1.33 | 1.36 | 1.39 |
+| Dewpoint (K) | 1.14 | 1.25 | 1.36 |
+| Relative humidity (%) | 8.0 | 8.4 | 8.7 |
+| Precipitation (mm/h) | 0.71 | 0.73 | 0.74 |
+
+### Finding: forecast skill has a latitude gradient
+
+JMA cloud-forecast correlation against ERA5, and how it decays:
+
+| Site | lat | r @0h | r @24h | r @72h |
+|---|---|---|---|---|
+| Kuala Lumpur | 3.1 | 0.512 | 0.456 | 0.365 |
+| Penang | 5.4 | 0.532 | 0.480 | 0.417 |
+| Kota Kinabalu | 6.0 | 0.548 | 0.492 | 0.420 |
+| Jakarta | −6.2 | 0.579 | 0.505 | 0.429 |
+| Ho Chi Minh | 10.8 | 0.507 | 0.459 | 0.393 |
+| Bangkok | 13.8 | 0.649 | 0.643 | 0.599 |
+| Manila | 14.6 | 0.720 | 0.671 | 0.614 |
+
+**Correlation between |latitude| and 24 h skill: 0.834.** Equatorial sites
+(|lat| < 7) average r = 0.483 at 24 h; off-equator sites average 0.591.
+
+Physically coherent: equatorial convection is locally driven and chaotic at
+mesoscale, while synoptic monsoon dynamics further from the equator are more
+predictable. This supports the project's premise empirically rather than by
+assertion — and it is a reportable result, since NWP verification for equatorial
+SEA is thinly published.
+
+> **Do not overstate this.** JMA's own *analysis* correlates only 0.578 with ERA5
+> cloud, so a large share of the disagreement is inter-model representation, not
+> forecast failure. A skill-score framing initially suggested "near-zero skill",
+> which was an artefact of that. Forecast decay itself is modest: 0.578 → 0.529 at
+> 24 h → 0.463 at 72 h.
+
+### Known limitation: no operational NWP GHI baseline on the test year
+
+JMA GSM carries **no shortwave radiation at any date**, and archived forecast GHI
+begins in **2024** for every model (ECMWF, GFS, ICON). NSRDB ends in **2020**.
+There is no overlap and there never will be.
+
+Consequence: the operational NWP baseline splits in two —
+
+1. **2020 benchmark:** a cloud-driven GHI baseline built from JMA's archived
+   forecast cloud via a clear-sky transmittance model. The cloud input is a
+   genuine forecast, so label it a *cloud-driven NWP baseline*, not an
+   operational GHI forecast.
+2. **Phase 6/7 demo:** real archived ECMWF/GFS GHI forecasts for 2024+ against
+   Solcast actuals. This is the true incumbent comparison.
 
 ---
 
@@ -132,7 +281,7 @@ Code/
 | Commits | [Conventional Commits](https://www.conventionalcommits.org/) — `type(scope): subject`, with a body explaining *why*. Scope is the module or phase |
 | Docstrings | NumPy style, matching numpy/scipy/pandas/pvlib. Rationale paragraphs are kept deliberately — they become Chapter 4 methodology text |
 | Imports | Always `from solarfc import ...`. Never `sys.path` hacks |
-| Repo visibility | Public. **No thesis prose in the repo** — Turnitin would match the thesis against its own public copy |
+| Scope | Code, data pipelines and build documentation only. Thesis writing lives in the plan document |
 
 ---
 
@@ -327,11 +476,72 @@ Not useful for training (no historical obs, no solar radiation data). Intended u
 - [x] Known-future covariate builder — three tracks (NWP-free, realistic, perfect-foresight)
 - [ ] Measure real NWP error from JMA archived forecasts, fit the degradation model
 - [ ] Operational NWP baseline (JMA GSM archived GHI)
-- [ ] Feature engineering pipeline (lags, rolling stats, calendar encodings)
-- [ ] XGBoost / LightGBM (direct, 9 models per horizon)
+- [ ] Feature engineering pipeline (lags, rolling stats, FULL vs DEPLOYABLE sets)
+- [ ] XGBoost / LightGBM (direct, one model per horizon × 11 horizons)
 - [ ] LSTM encoder-decoder, BiLSTM-GRU, physics-guided CNN-BiLSTM (MIMO)
 - [ ] Chronos-2 zero-shot baseline
+- [ ] Cloud-driven NWP baseline for the 2020 benchmark
 - [ ] Dataset redistribution licence check (determines Phase 8 release form)
+
+---
+
+## Resume Here
+
+**State as of 2026-08-30:** Phase 1 complete, Phase 2 roughly 55% done.
+**Zero models trained** — no accuracy results of any kind yet.
+
+### Run this first
+
+```bash
+/opt/anaconda3/envs/fyp/bin/python -m pytest      # expect 158 passing
+```
+
+`conda activate fyp` can silently fall through to `virt_env` depending on shell
+state. Use the absolute interpreter path, or check `which python` after
+activating.
+
+### What exists and is validated
+
+| Component | Evidence |
+|---|---|
+| Evaluation framework | 158 tests, metrics frozen before any model |
+| ERA5 pipeline + cache | 7 sites × 263,083 rows; ssrd vs NSRDB GHI r = 0.897–0.946 |
+| Known-future covariates | Three tracks, leakage guards asserted in tests |
+| NWP error models | Fitted to measured JMA error, validated to within 0.2% |
+
+Cached data is gitignored and must be rebuilt on a fresh machine:
+
+```bash
+python scripts/build_era5_cache.py     # ~4.5 min, needs data/era5/*.nc
+python scripts/pull_jma_forecasts.py   # ~4.5 min, network only
+```
+
+The fitted error models are committed, so the realistic track works without
+re-running the JMA pull.
+
+### Next task
+
+**Feature pipeline, then XGBoost.** That produces the first real accuracy number
+and tells you whether the data supports the horizon set at all — before any
+Transformer work. If XGBoost cannot beat smart persistence at 6 h, nothing
+downstream will either.
+
+Reference numbers to beat (KL 2020, daytime only, smart persistence):
+
+| Horizon | MAE | RMSE | FS vs naive |
+|---|---|---|---|
+| 20 min | 60.9 | 110.5 | 0.079 |
+| 1 h | 91.8 | 148.2 | 0.255 |
+| 6 h | 178.8 | 255.1 | 0.512 |
+| 24 h | 144.4 | 207.1 | 0.003 |
+
+### Open items needing a decision or an action
+
+- **SEDA PVMS request** — drafted at `../SEDA-PVMS-data-request-DRAFT.md`, held
+  until a supervisor is assigned. Blocks nothing; send by Phase 4
+- **Nothing pushed to origin yet** — 11 commits sitting on `development`
+- **To verify:** NSRDB Himawari coverage at Darwin; Kaggle India plant scale;
+  DKASC co-located irradiance
 
 ### Phase 3: Standard TFT + Transformer Baselines — Not Started
 
