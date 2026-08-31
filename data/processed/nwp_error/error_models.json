@@ -1,0 +1,57 @@
+{
+  "era5_cloud_cover": {
+    "variable": "era5_cloud_cover",
+    "sigma_0": 0.2653612565070305,
+    "growth_rate": 0.0004935494939119994,
+    "sigma_max": 0.30056865534526167,
+    "correlation_hours": 8.622652566578502,
+    "lower_bound": 0.0,
+    "upper_bound": 1.0,
+    "bias_0": -0.15928267367311072,
+    "bias_growth": -0.0006391143674279456
+  },
+  "era5_relative_humidity": {
+    "variable": "era5_relative_humidity",
+    "sigma_0": 7.718726325366791,
+    "growth_rate": 0.013434644570326712,
+    "sigma_max": 10.9756414331349,
+    "correlation_hours": 9.92005111887008,
+    "lower_bound": 0.0,
+    "upper_bound": 100.0,
+    "bias_0": -0.5522585010757853,
+    "bias_growth": -7.605314856862305e-05
+  },
+  "era5_precip_mm_h": {
+    "variable": "era5_precip_mm_h",
+    "sigma_0": 0.698074410873447,
+    "growth_rate": 0.0006006861933325282,
+    "sigma_max": 0.7405400626982241,
+    "correlation_hours": 10.763185457933902,
+    "lower_bound": 0.0,
+    "upper_bound": null,
+    "bias_0": -0.004803982061406663,
+    "bias_growth": 0.00013049251162268192
+  },
+  "era5_temp_c": {
+    "variable": "era5_temp_c",
+    "sigma_0": 1.3065322658729026,
+    "growth_rate": 0.0010895236883554109,
+    "sigma_max": 2.000154930989741,
+    "correlation_hours": 10.94376898767978,
+    "lower_bound": null,
+    "upper_bound": null,
+    "bias_0": -0.39047399925202164,
+    "bias_growth": -0.0001634117403530575
+  },
+  "era5_dewpoint_c": {
+    "variable": "era5_dewpoint_c",
+    "sigma_0": 1.0250091430967192,
+    "growth_rate": 0.004670725621365974,
+    "sigma_max": 1.8147527921003532,
+    "correlation_hours": 12.125409631674511,
+    "lower_bound": null,
+    "upper_bound": null,
+    "bias_0": -0.4818550660371451,
+    "bias_growth": -0.0006173593235263955
+  }
+}

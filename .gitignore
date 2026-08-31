@@ -1,5 +1,17 @@
 .env
-data/
+
+# All data is ignored, with one exception. Git cannot re-include a file whose
+# parent directory is excluded, so each level has to be opened up in turn.
+data/*
+!data/processed/
+data/processed/*
+# Fitted error models and their measurements are results, not raw data. They
+# are small, and without them the realistic known-future track could not be
+# reproduced without re-pulling three years of JMA forecasts.
+!data/processed/nwp_error/
+# Same reasoning for the fitted Linke turbidity: one float per site, and
+# every clear-sky index in the project depends on it.
+!data/processed/clearsky/
 __pycache__/
 *.pyc
 *.egg-info/
@@ -7,3 +19,5 @@ __pycache__/
 build/
 *.o
 *.so
+.pytest_cache/
+results/
