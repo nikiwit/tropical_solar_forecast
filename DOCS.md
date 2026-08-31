@@ -1,6 +1,6 @@
 # Tropical Solar Forecast — Working Documentation
 
-Last updated: 2026-08-30 (Phase 2 infrastructure complete)
+Last updated: 2026-08-31 (Phase 2 complete)
 
 > **The planning document is not in this repository.** It lives at
 > `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Second Brain/6 - University/FYP/FYP Plan.md`
@@ -59,7 +59,7 @@ Built and frozen **before** any model is trained, so every baseline, every ablat
 variant and the C++ engine are scored by identical code.
 
 ```bash
-/opt/anaconda3/envs/fyp/bin/python -m pytest      # 237 tests
+/opt/anaconda3/envs/fyp/bin/python -m pytest      # 265 tests
 ```
 
 > **Note:** `conda activate fyp` can silently fall through to `virt_env` depending on
@@ -80,6 +80,7 @@ variant and the C++ engine are scored by identical code.
 | `features.py` | Observed-past features — lags, rolling stats, CSI, `delta_csi`, FULL/DEPLOYABLE |
 | `scaling.py` | Per-site z-score, fitted on train years, serialised for SolarInfer |
 | `dataset.py` | Supervised assembly — joins encoder and decoder sides per horizon |
+| `nwp_baseline.py` | Cloud-driven and MOS operational NWP incumbent |
 | `results.py` | The one results schema every phase appends to |
 | `models/gbdt.py` | XGBoost and LightGBM, direct multi-horizon |
 
@@ -364,6 +365,386 @@ day-ahead.
 
 ---
 
+## LightGBM (444 models, 18m34s, 0 failures)
+
+Run on the frozen `csi` target only. Same grid, same splits, same metrics code.
+
+### It wins, reliably, by almost nothing
+
+Paired against XGBoost over all 462 site × horizon × track × feature-set cells:
+
+| Metric | LightGBM | XGBoost | LightGBM wins | Mean margin | Wilcoxon |
+|---|---|---|---|---|---|
+| MAE | **94.16** | 94.71 | 395/462 | −0.55 W/m² | p = 1.7e-54 |
+| RMSE | **132.60** | 133.13 | 385/462 | −0.53 W/m² | p = 9.6e-51 |
+
+It wins at every single horizon (42/42 cells at 20 min), margin 0.26–0.85 W/m²,
+so 0.3–0.9%. Same shape as the target-representation result: a *reliable*
+preference, not a meaningful one. Use LightGBM as the tree baseline — it is
+also the faster of the two — but do not present the gap as a finding.
+
+AEMO dual-criterion against smart persistence improves 64/77 → **66/77**.
+Every remaining failure is still at 20/30 min, so the absolute-error objective
+fix carries over unchanged.
+
+### Everything replicates under a second algorithm
+
+This is the point of running it. The deployable gap, independently reproduced:
+
+| DEPLOYABLE − FULL, MAE | 20min | 1h | 3h | 6h | 12h | 24h | 48h |
+|---|---|---|---|---|---|---|---|
+| XGBoost | +1.27 | +1.09 | +0.85 | +0.35 | −0.21 | −0.17 | +0.15 |
+| **LightGBM** | +1.34 | +1.27 | +0.46 | +0.26 | −0.47 | −0.19 | −0.16 |
+
+Two unrelated tree implementations agree that satellite-only features are worth
+~1.3 W/m² sub-hourly and nothing past 6 h. The headline Contribution 4 number is
+now a replicated result rather than a single run.
+
+### Finding: the NWP path has a measured ceiling, and both algorithms hit it
+
+MAE improvement from adding known-future weather, mean over 7 sites, FULL:
+
+| | 20min | 3h | 6h | 12h | 24h | 36h | 48h |
+|---|---|---|---|---|---|---|---|
+| **realistic** − nwp_free (XGB) | 0.06 | 1.40 | 2.46 | 4.97 | 6.92 | 7.34 | 8.35 |
+| **realistic** − nwp_free (LGB) | 0.03 | 1.08 | 2.89 | 4.54 | 6.23 | 7.79 | 8.88 |
+| **perfect** − nwp_free (XGB) | 0.06 | 3.55 | 6.75 | 11.02 | 13.66 | 15.75 | 16.81 |
+| **perfect** − nwp_free (LGB) | 0.02 | 3.57 | 7.13 | 11.00 | 13.53 | 15.86 | 16.95 |
+
+The two algorithms agree to within noise (±0.5 W/m²) on **how much information
+a weather forecast contains**, which is what you would expect if this is a
+property of the data rather than of the model.
+
+Two numbers matter here:
+
+1. **A realistic NWP forecast is worth ~6 W/m² at 24 h and ~9 W/m² at 48 h** —
+   against a base MAE of ~106. Real, but 6–8%.
+2. **A *perfect* forecast is worth ~13.5 W/m² at 24 h and ~17 W/m² at 48 h.** So
+   the realistic track already captures about **half** the available NWP
+   headroom (46% at 24 h, 52% at 48 h).
+
+> **This sharpens the project's central hypothesis and partly tempers it.** The
+> reasoning after the XGBoost grid was that the encoder is tapped out, so any
+> architectural win has to come from the decoder/NWP path. That still holds —
+> it is the only path with measurable headroom. But the headroom is now
+> *quantified*, and it is bounded: even a perfect weather forecast, perfectly
+> exploited, moves day-ahead MAE by ~13%. Half of that is already taken. So the
+> realistic prize for Tropical-TFT's decoder work is single-digit W/m², and the
+> thesis should say so before claiming it rather than after failing to find it.
+>
+> It is also a fourth independent line of evidence for the predictability
+> ceiling, and the first one that isolates the *decoder* side specifically.
+
+## The Loss Function Is the Biggest Lever Found (462/462)
+
+Refitting the whole LightGBM grid with `--objective mae` — 462 paired cells,
+every site, horizon, track and feature set:
+
+| | squared error | **`mae`** | |
+|---|---|---|---|
+| Mean MAE | 94.16 | **89.54** | **+4.62 W/m², 462/462 wins, p = 2.0e-77** |
+| Mean RMSE | 132.60 | 134.49 | −1.89 W/m², loses 420/462 |
+| **vs smart persistence, both criteria** | 66/77 | **77/77** | |
+| **vs NWP incumbent, regulated horizons** | 19/21 | **21/21** | margin +7.1 → **+11.6** |
+
+The gain is flat across the entire horizon range, which is the surprising part:
+
+| 20min | 30min | 1h | 2h | 3h | 6h | 12h | 24h | 48h |
+|---|---|---|---|---|---|---|---|---|
+| +4.96 | +4.82 | +4.57 | +4.86 | +4.77 | +4.26 | +4.41 | +4.72 | +4.20 |
+
+The earlier XGBoost probe only looked sub-hourly and suggested this was a
+sub-hourly patch. It is not. **Absolute error is the better objective for this
+problem at every horizon tested.**
+
+### It replicates across algorithms — 924/924 cells
+
+The obvious objection is that this is an artefact of one library's L1
+implementation. It is not. Both grids, full coverage:
+
+| Algorithm | squared | **`mae`** | Gain | Wins | Wilcoxon | RMSE cost |
+|---|---|---|---|---|---|---|
+| LightGBM | 94.16 | **89.54** | **+4.62** | **462/462** | 2.0e-77 | 1.89 |
+| XGBoost | 94.71 | **90.97** | **+3.73** | **462/462** | 2.0e-77 | 1.51 |
+
+**Not one cell out of 924 goes the other way.** XGBoost's gain is smaller —
+3.73 against 4.62 — so some of LightGBM's margin is implementation-specific,
+but the bulk of the effect is not. Positive at all eleven horizons for both
+(LightGBM +3.60 to +5.28, XGBoost +2.92 to +3.91).
+
+The AEMO ladder against smart persistence, all 77 site-horizon pairs:
+
+| Configuration | Both criteria |
+|---|---|
+| xgboost | 64/77 |
+| xgboost-mae | 75/77 |
+| lightgbm | 66/77 |
+| **lightgbm-mae** | **77/77** |
+
+`lightgbm-mae` is the only one of the four that clears every pair.
+XGBoost-mae's two remaining failures are **Manila at 20 min and 30 min**, on
+MAE alone — its RMSE beats persistence comfortably there (114.4 against 126.8).
+Manila is the hardest site in the set, and it is precisely where the two
+algorithms separate.
+
+> **Why absolute error wins, physically.** Squared error fits the conditional
+> *mean*. The tropical clear-sky-index distribution is skewed and heavy-tailed
+> — long stretches near 1.0 punctuated by deep convective collapses — and the
+> mean is a poor summary of a distribution shaped like that. Absolute error
+> fits the conditional *median*, which sits where the mass actually is. That
+> the effect survives two unrelated implementations is what makes this a
+> property of the data rather than of a solver.
+
+### Decision: report both objectives, do not freeze one
+
+Rather than promote `mae` to the default the way `csi` was frozen as the
+target, **both objectives are carried side by side in every results table**,
+like the three NWP tracks. `config.DEFAULT` stays on squared error and the
+absolute-error grid runs under the `-mae` label, so both are always present.
+
+The reasoning is that the loss is not a nuisance parameter to be settled once.
+It is a genuine operating choice with a measurable trade — roughly 4.6 W/m² of
+MAE against 1.9 of RMSE and 0.011 of Forecast Skill — and which side of that
+trade is right depends on what the forecast is scored against. A regulator
+applying AEMO's dual criterion wants the absolute-error model. A comparison
+quoted on Forecast Skill alone wants the squared-error one. Freezing either
+would hide a choice the reader should see.
+
+Coverage is complete for both algorithms: LightGBM and XGBoost each carry a
+full grid under each objective, 3,234 rows apiece.
+
+> [!warning] This decision has a Phase 4 consequence that must not be lost
+> **Module D trains the quantile head with pinball loss, and pinball at the
+> median is exactly `0.5·|error|` — absolute error.** So Tropical-TFT's P50
+> forecast is trained on L1 by construction.
+>
+> Comparing it against squared-error trees would therefore confound the
+> architecture with the loss function, and that confound is worth **4.6 W/m²**
+> — larger than the entire realistic NWP headroom of ~7 W/m². A Tropical-TFT
+> "win" of that size could be nothing but the objective.
+>
+> **The ablation must compare the TFT against `lightgbm-mae`, not `lightgbm`.**
+> Quote the squared-error column too, but the like-for-like comparison is the
+> absolute-error one.
+
+### It also improves ramp detection, which is the opposite of the obvious worry
+
+RMSE weights large errors, and the large errors here are convective ramps —
+the events this project argues are operationally decisive. So trading RMSE for
+MAE looked like it might quietly damage the thing that matters most. Measured
+on KL, Manila and Bangkok at 20min/1h/2h:
+
+| Metric | Δ (mae − squared) | Cells improved |
+|---|---|---|
+| **Recall** | **+0.042** | **9/9** |
+| **F1** | **+0.021** | **9/9** |
+| Precision | −0.010 | 3/9 |
+
+KL at 20 min: recall 0.734 → **0.807**. Recall is the safety-critical number —
+a missed down-ramp is unserved load or a reserve call — so this is the right
+direction to move.
+
+> **Why it goes this way.** Squared error drives predictions toward the
+> conditional *mean*, which smooths; a smoothed forecast under-shoots sharp
+> transitions and misses ramps. Absolute error targets the conditional
+> *median*, which is far less pulled by the tails and keeps transitions sharp.
+> A sharper forecast calls more ramps. The small precision cost is the
+> expected other side of the same mechanism.
+
+### Two mechanisms to state honestly in the write-up
+
+**Early stopping follows the objective.** Neither library is given an explicit
+`eval_metric`, so it defaults to the training loss. The `mae` models stop on
+validation L1, the squared models on validation L2. Part of the gain is
+therefore *model selection*, not only the fitting loss. Both configurations are
+internally consistent and either is what one would deploy, so the honest claim
+is "a model fitted **and selected** for absolute error beats one fitted and
+selected for squared error" — not "one loss term is worth 4.6 W/m²".
+
+**Training space and scoring space differ.** The model trains on the clear-sky
+index but is scored on `GHI = csi × clearsky`. Squared error in CSI space is
+not squared error in GHI space — the clear-sky multiplier reweights everything
+toward midday. Absolute CSI error sits closer to GHI MAE than squared CSI error
+does, which is part of why the gain is so uniform.
+
+Neither mechanism undermines the result. Both explain it.
+
+## Two Levers That Did Nothing (useful negatives)
+
+### Pooled multi-site training: +0.32 W/m²
+
+One model over all seven sites with a `site_id` feature, **522,152 training
+rows against ~75,000 per site**, evaluated per site on its own test rows:
+
+| Horizon | Mean gain |
+|---|---|
+| 20min | +0.49 |
+| 1h | +0.53 |
+| 6h | −0.18 |
+| 24h | +0.45 |
+
+**Seven times the data buys 0.4%**, with signs flipping site to site. This is
+the strongest available evidence that **data volume is not the constraint**.
+
+One real signal inside the noise: **Ho Chi Minh gains at every horizon** (+1.18
+to +2.41) while Kota Kinabalu and Penang consistently lose. Pooling helps some
+sites and hurts others, which is a preliminary answer to the transfer question
+the zero-shot and few-shot studies are designed to settle.
+
+### Short-window variability features: +0.03 W/m²
+
+The feature set carries exactly one rolling standard deviation, at 6 h, yet
+site difficulty correlates r = +0.854 with CSI interquartile range. Adding
+30 min, 1 h and 3 h windows (82 → 88 columns), tested at 20min/30min/1h/3h on
+KL, Manila and Bangkok: **mean MAE gain +0.033 W/m², RMSE +0.129**. Noise, with
+signs flipping cell to cell.
+
+This was the most physically motivated feature bet available — aimed by the
+project's own variability finding at the one regime where features still
+measurably matter — and it returned nothing.
+
+> **The pattern across seven experiments.** Every attempt to give the model
+> *more information* has failed: more features, more data, more capacity,
+> deeper trees, a different algorithm, targeted variability features. The only
+> intervention that worked changed what the model is asked to *optimise*, not
+> what it knows. That is the predictability-ceiling result stated precisely,
+> and it is now the best-evidenced claim in the project.
+
+## Operational NWP Baseline (the incumbent comparison)
+
+`scripts/run_nwp_baseline.py` — 9,702 rows, 29s, all seven sites.
+Module: `src/solarfc/nwp_baseline.py`. 28 tests.
+
+This is the baseline that speaks to adoption. Every other reference here is
+statistical or machine-learned; this one is the forecast a plant already
+receives from a national met agency, and AEMO accredits a self-forecast only
+if it beats that on **both** MAE and RMSE.
+
+> **It is a cloud-driven NWP baseline, not an operational GHI forecast.** JMA
+> GSM carries no shortwave radiation, so irradiance is derived from archived
+> forecast *cloud* through a clear-sky transmittance model. The cloud is a
+> genuine forecast at a genuine lead time; the conversion is ours. Label it
+> that way every time it is reported.
+
+Three variants, all fitted on training years only (the archive starts in
+2018, so in practice they fit on 2018 and are scored on 2019 and 2020):
+
+| Model | What it is |
+|---|---|
+| `nwp_jma_mos` | Ridge post-processing over all five forecast fields — **the headline incumbent** |
+| `nwp_jma_cloud` | Fitted cloud-to-transmittance curve |
+| `nwp_jma_cloud_kc` | The same curve with Kasten-Czeplak's published coefficients |
+
+MOS is the headline because raw NWP output is post-processed before anyone
+dispatches on it. It roughly doubles explained variance (R² 0.05 → 0.15 at
+KL), so scoring only the cloud-only form would understate the incumbent and
+flatter everything measured against it.
+
+### The headline: the model beats the incumbent
+
+AEMO dual criterion at the three regulated horizons (24h/36h/48h × 7 sites
+= 21 pairs), `realistic`/FULL/`csi` against `nwp_jma_mos` at its
+operational lead:
+
+| Model | MAE | RMSE | **Both** | Mean margin |
+|---|---|---|---|---|
+| XGBoost | 19/21 | 21/21 | **19/21** | +6.5 W/m² |
+| LightGBM | 19/21 | 21/21 | **19/21** | **+7.1 W/m²** |
+
+Per site at 24 h, MAE:
+
+| Site | LightGBM | NWP MOS | NWP cloud | Smart pers. | Margin |
+|---|---|---|---|---|---|
+| bangkok | 85.5 | 100.1 | 100.9 | 108.7 | **+14.5** |
+| manila | 125.7 | 136.9 | 136.8 | 155.6 | +11.2 |
+| penang | 105.8 | 115.5 | 116.4 | 145.3 | +9.8 |
+| kota_kinabalu | 105.1 | 112.9 | 120.9 | 131.6 | +7.8 |
+| ho_chi_minh | 102.4 | 109.5 | 110.9 | 126.5 | +7.0 |
+| kuala_lumpur | 108.0 | 113.4 | 118.6 | 148.0 | +5.4 |
+| **jakarta** | 112.8 | **110.7** | 122.4 | 146.8 | **−2.2** |
+
+Both failures are Jakarta, at 24 h and 36 h, and **both are MAE-only — RMSE
+passes at each**. That is the same squared-loss trade-off found sub-hourly
+against persistence, so the `--objective mae` fix is the thing to try.
+
+### Finding: the bottleneck is the conversion, not the forecast
+
+Scoring at lead 0 (JMA's analysis-time cloud — not a forecast, so a ceiling)
+against lead 24 h isolates how much error comes from the forecast decaying
+rather than from everything else:
+
+| Site | lead 0 (analysis) | lead 24 h (forecast) | Cost of forecasting |
+|---|---|---|---|
+| bangkok | 100.1 | 100.1 | **0.0** |
+| kota_kinabalu | 112.1 | 112.9 | 0.7 |
+| kuala_lumpur | 111.5 | 113.4 | 1.9 |
+| jakarta | 108.6 | 110.7 | 2.1 |
+| ho_chi_minh | 106.6 | 109.5 | 2.9 |
+| penang | 108.3 | 115.5 | 7.3 |
+| manila | 128.3 | 136.9 | 8.6 |
+
+**Mean cost of a 24-hour lead: 3.4 W/m², against a total error of ~113.**
+So ~97% of the incumbent's error is in the cloud-to-irradiance conversion
+and the coarse grid, not in the cloud forecast going stale. Consistent with
+the earlier finding that JMA's forecast decay is modest and most of the
+apparent disagreement with ERA5 is inter-model representation.
+
+### Kasten-Czeplak does not transfer, and fitting it halved our own margin
+
+The published curve `csi = 1 − 0.75·cc^3.4` predicts a clear-sky index of
+**0.25** at full overcast. These seven sites measure **0.63**. Scored on the
+test year it gives a *negative* R² at every site — worse than predicting the
+training mean. Fitted coefficients land near **a = 0.37, b = 0.72**.
+
+| Site | Fitted MAE | Kasten-Czeplak MAE | Penalty |
+|---|---|---|---|
+| kuala_lumpur | 118.6 | 139.8 | 21.3 |
+| penang | 116.4 | 135.6 | 19.2 |
+| jakarta | 122.4 | 137.0 | 14.6 |
+| ho_chi_minh | 110.9 | 121.8 | 10.9 |
+| kota_kinabalu | 120.9 | 131.2 | 10.3 |
+| manila | 136.8 | 146.1 | 9.3 |
+| bangkok | 100.9 | 109.4 | 8.4 |
+
+> **Worth stating plainly in Chapter 5.** Using the published coefficients
+> would have made the incumbent look ~13 W/m² worse than it is — roughly
+> twice the true margin. Fitting the baseline properly *halved this
+> project's own headline number*. That is the difference between a real
+> result and an artefact of a badly specified comparator.
+
+### Why cloud cover is such a weak predictor here
+
+Even fitted, cloud cover explains little: R² 0.04–0.14 across the sites. Total
+cloud fraction over a coarse grid cell is a poor proxy for point transmittance
+in the tropics, where thin cirrus is common and the cloud-cover distribution is
+compressed against its upper bound.
+
+The weakness is not uniform, and **the latitude gradient reappears by a
+completely independent route**:
+
+| Group | Sites | r (cloud vs CSI) | R² |
+|---|---|---|---|
+| Equatorial (\|lat\| < 7) | KL, Penang, Kota Kinabalu | −0.22 to −0.24 | 0.04–0.05 |
+| Off-equator | Ho Chi Minh, Bangkok, Manila | −0.36 to −0.42 | 0.11–0.14 |
+
+Same direction as the r = 0.834 correlation between |latitude| and JMA
+forecast skill, but derived from cloud physics rather than forecast
+verification. Two independent measurements of the same thing.
+
+### Reading the horizon axis
+
+A forecast valid at time T is a single value however far ahead it was issued,
+so the NWP prediction does not change across horizons at a fixed lead — only
+the persistence reference it is scored against does. That asymmetry is exactly
+why NWP looks progressively better as the horizon grows.
+
+The archive serves fixed daily offsets, so there is nothing between lead 0 and
+lead 24 h. Sub-daily horizons are therefore mapped to the 24-hour lead, which
+badly understates what a fresh run would give: at 20 min the incumbent scores
+113 against smart persistence at 64. **Do not report the short-horizon NWP
+comparison as meaningful.** The mapping is exact only at 24 h, 36 h and 48 h —
+which are precisely the horizons the grid code regulates.
+
 ## Known-Future Covariates and NWP Error
 
 ### Three tracks, not two
@@ -458,7 +839,8 @@ Consequence: the operational NWP baseline splits in two —
 1. **2020 benchmark:** a cloud-driven GHI baseline built from JMA's archived
    forecast cloud via a clear-sky transmittance model. The cloud input is a
    genuine forecast, so label it a *cloud-driven NWP baseline*, not an
-   operational GHI forecast.
+   operational GHI forecast. **Built** — see the Operational NWP Baseline
+   section above for the results and their caveats.
 2. **Phase 6/7 demo:** real archived ECMWF/GFS GHI forecasts for 2024+ against
    Solcast actuals. This is the true incumbent comparison.
 
@@ -636,6 +1018,43 @@ python download_solcast.py
 
 ---
 
+## Redistribution Licensing — settled
+
+Checked because it decides what the benchmark release ships: the derived
+dataset itself, or derivation scripts plus checksums. Answer: it can ship the
+data, with one exclusion.
+
+| Source | Licence | Derived data redistributable? |
+|---|---|---|
+| **NSRDB** | [CC BY 3.0 US](https://registry.opendata.aws/nrel-pds-nsrdb/) (AWS Open Data registry) | **Yes**, with attribution |
+| **ERA5** | [CC BY 4.0](https://forum.ecmwf.int/t/cc-by-licence-to-replace-licence-to-use-copernicus-products-on-02-july-2025/13464) since 2 July 2025 | **Yes**, with attribution |
+| **JMA GSM** via Open-Meteo | CC BY 4.0 | **Yes**, with attribution |
+| **Solcast** | [Researcher account terms](https://solcast.com/solar-data-api/api/terms-and-conditions/) | **No** — no distribution to third parties, directly or bundled into another product, without written permission |
+
+ERA5 was the one at real risk and it resolved the easy way: the old bespoke
+"Licence to use Copernicus Products" was replaced by plain CC-BY 4.0 in July
+2025, so derived redistribution is explicitly fine.
+
+**What the release ships:** the preprocessed 10-minute aligned NSRDB + ERA5
+dataset, the frozen split indices, the evaluation harness and every baseline
+result. **Solcast values are excluded** — the spot-validation appears as
+aggregate comparison statistics only, which is use rather than redistribution.
+
+Required attribution in the deposit:
+
+- NSRDB — cite Sengupta et al. (2018), *Renewable and Sustainable Energy
+  Reviews* 89:51–60, and credit DOE/NREL/ALLIANCE
+- ERA5 — "Generated using Copernicus Climate Change Service information [year]"
+- Open-Meteo — CC BY 4.0 attribution
+
+> **Solcast has a pre-publication obligation, and it has a deadline.** The
+> researcher terms require sending Solcast a pre-print of any thesis,
+> presentation or publication using their data **at least one week before**
+> dissemination. That applies to the thesis submission itself. Diarise it —
+> it is easy to miss and it is a term of the account, not a courtesy.
+
+---
+
 ## Progress
 
 ### Phase 1: Setup & Data Acquisition — Near Complete (as of 2026-04-06)
@@ -734,24 +1153,28 @@ Not useful for training (no historical obs, no solar radiation data). Intended u
 - [x] Reproducible baselines script (replaces the interactive reference table)
 - [x] XGBoost / LightGBM trainers + resumable run harness
 - [x] **Full XGBoost grid run** — 924 models, 0 failures, `csi` target frozen
-- [ ] LightGBM on the winning target (462 models)
-- [ ] Operational NWP baseline (JMA GSM archived GHI)
+- [x] **LightGBM on the winning target** — 444 models, 0 failures, 18m34s. Wins
+      395/462 on MAE by 0.55 W/m². Every Phase 2 finding replicates
+- [x] **Operational NWP baseline** — cloud-driven, three variants, 9,702 rows.
+      Model beats the MOS incumbent 19/21 at the regulated horizons, +7.1 W/m²
 - [ ] LSTM encoder-decoder, BiLSTM-GRU, physics-guided CNN-BiLSTM (MIMO)
 - [ ] Chronos-2 zero-shot baseline
 - [ ] Cloud-driven NWP baseline for the 2020 benchmark
-- [ ] Dataset redistribution licence check (determines Phase 8 release form)
+- [x] Dataset redistribution licence check — the release ships data, Solcast excluded
 
 ---
 
 ## Resume Here
 
-**State as of 2026-08-30:** Phase 1 complete, Phase 2 infrastructure complete
-and validated. The full training grid has **not** been run yet.
+**State as of 2026-08-31: Phase 2 is complete.** XGBoost and LightGBM grids
+run, the operational NWP incumbent is built and scored, and the
+redistribution licence question is settled. Next phase is Standard TFT and
+the Transformer baselines.
 
 ### Run this first
 
 ```bash
-/opt/anaconda3/envs/fyp/bin/python -m pytest      # expect 237 passing
+/opt/anaconda3/envs/fyp/bin/python -m pytest      # expect 265 passing
 ```
 
 ### The Phase 2 run order
@@ -772,6 +1195,14 @@ python scripts/train_gbdt.py
 
 # 5. LightGBM on whichever target won, once step 4 reports it.
 python scripts/train_gbdt.py --algorithm lightgbm --targets csi
+
+# 5b. Same grid under absolute error -- both objectives are reported,
+#     so this is not optional. ~27 min (L1 is slower than L2).
+python scripts/train_gbdt.py --algorithm lightgbm --targets csi \
+    --objective mae --label mae
+
+# 6. Operational NWP incumbent -- ~30s. Needs the JMA cache.
+python scripts/run_nwp_baseline.py
 ```
 
 Everything appends to `data/processed/results/results.csv`. The harness skips
@@ -786,7 +1217,7 @@ activating.
 
 | Component | Evidence |
 |---|---|
-| Evaluation framework | 237 tests, metrics frozen before any model |
+| Evaluation framework | 265 tests, metrics frozen before any model |
 | ERA5 pipeline + cache | 7 sites × 263,083 rows; ssrd vs NSRDB GHI r = 0.897–0.946 |
 | Known-future covariates | Three tracks, leakage guards asserted in tests |
 | NWP error models | Fitted to measured JMA error, validated to within 0.2% |
@@ -858,7 +1289,12 @@ the clear-sky envelope has to be extrapolated furthest.
 
 - **SEDA PVMS request** — drafted at `../SEDA-PVMS-data-request-DRAFT.md`, held
   until a supervisor is assigned. Blocks nothing; send by Phase 4
-- **Nothing pushed to origin yet** — 11 commits sitting on `development`
+- **Merge to `main` and tag `phase-2-baselines`** — the phase is complete, and
+  the repo convention is to tag at phase completion
+- **Jakarta fails AEMO against the NWP incumbent** at 24 h and 36 h, on MAE
+  only. Try `--objective mae`, the same fix that worked sub-hourly
+- **Solcast pre-print obligation** — a pre-print must reach Solcast at least a
+  week before the thesis is submitted. See the Redistribution Licensing section
 - **To verify:** NSRDB Himawari coverage at Darwin; Kaggle India plant scale;
   DKASC co-located irradiance
 
