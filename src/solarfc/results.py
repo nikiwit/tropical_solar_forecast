@@ -11,9 +11,9 @@ where a mistake is least visible.
 
 So every model appends rows in one long format:
 
-    one row = one (model, site, horizon, track, feature_set, target,
-    split,
-                   stratum) combination, with its metrics
+    one row = one combination of
+    (model, site, horizon, track, feature_set, target, split, stratum),
+    with its metrics
 
 Stratification is a column rather than a separate file. The
 monsoon-phase tables, the transition-vs-stable calibration split and the
