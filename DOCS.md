@@ -745,6 +745,102 @@ badly understates what a fresh run would give: at 20 min the incumbent scores
 comparison as meaningful.** The mapping is exact only at 24 h, 36 h and 48 h —
 which are precisely the horizons the grid code regulates.
 
+## Predictability Study — TIGGE Ensemble
+
+`scripts/pull_tigge_ensemble.py`. Download in progress; no results yet.
+
+### Why this exists
+
+Seven experiments now say the tree models sit at a predictability ceiling
+rather than a capacity or feature one. That is a claim about the
+*atmosphere*, and it deserves to be measured directly rather than inferred
+from things that failed to help.
+
+Yang's framework does exactly that. Predictability is bounded between a
+**highest tolerable MSE** — derived from a correlogram fitted to the lag-h
+autocorrelation of the clear-sky index, referenced to the optimal convex
+combination of climatology and persistence — and a **smallest attainable
+MSE**, approximated by predictability error growth: how fast a control
+forecast and its perturbed siblings diverge in a real dynamical model.
+
+The upper bound needs nothing but data already on disk. The lower bound
+needs an NWP ensemble, which is what this downloads.
+
+| Source | Yang (2022) *RSER* 167:112736; Yang et al. (2023) *Solar Energy*; Liu & Yang (2023) *RSER* 182 |
+|---|---|
+| Their empirics | 7 sites in the United States, and a CONUS map |
+| This project | 7 sites in equatorial SEA, monsoon-stratified |
+
+An OpenAlex sweep found **8 works total** at the intersection of
+predictability and solar forecast skill, and **4** for monsoon plus solar
+predictability, none of them relevant. The method is established; the
+region is unoccupied.
+
+### What is being pulled
+
+| | |
+|---|---|
+| Dataset | `tigge-forecasts` on the ECMWF Data Store, `origin=ecmwf` |
+| Variable | `surface_net_solar_radiation` (`ssr`), accumulated J m⁻² |
+| Members | control + all 50 perturbed — the form has no member selector |
+| Leads | 6-hourly to 48 h, then daily to 168 h (14 values) |
+| Period | 2020, one 00:00 UTC initialisation per day |
+| Volume | ~13.6 GB raw, under 100 MB extracted |
+
+Lead times run past the 48 h horizon ceiling on purpose. Two leads would
+give Yang's bound at 24 h and 48 h only; the full curve is what supports a
+statement about an equatorial predictability *horizon* — where skill
+saturates — which is the more quotable result and ties directly to the
+measured latitude gradient.
+
+### Things that cost time to find out
+
+- **ECDS runs one job at a time per user.** Parallel processes only queue
+  behind each other. Measured: a perturbed month is ~1109 MB and 25–40 min,
+  a control month ~21 MB and 90 s. Whole year is 5–8 h, almost all queue
+- **Credentials go in `.env` as `ECDS_TOKEN`, never `~/.cdsapirc`.** ECDS
+  wants the same filename as the Copernicus CDS with a different url and
+  key, so writing it there silently breaks the ERA5 pipeline
+- The old `ecmwf-api-client` / `.ecmwfapirc` route was **decommissioned on
+  27 May 2026**; TIGGE moved to ECDS on 21 April. Ignore any guide older
+  than that. ECMWF registration is Keycloak SSO — the Drupal
+  `/user/register` form is vestigial and its username field is dead
+- TIGGE is **GRIB only**, so this is the one part of the pipeline needing
+  `cfgrib` and `eccodes`; everything else is NetCDF or Parquet
+- The grid is **reduced Gaussian at ~0.14°**, so latitude and longitude
+  arrive as flat arrays over a `values` dimension and nearest-neighbour
+  search has to walk them directly. Upside: the closest point to KL is
+  **4.5 km** away, against ERA5's 31 km
+- `ssr` accumulates from forecast start and the lead spacing is uneven, so
+  the divisor must come from the actual step difference
+- Extraction uses `isel(values=i).to_dataframe()` rather than positional
+  numpy indexing: a monthly file carries `time` as a dimension where a
+  single-day one has it as a scalar
+
+> **Licence: CC BY 4.0, not non-commercial.** TIGGE splits by producing
+> centre — BoM, CMA, CPTEC, IMD, JMA, MF and NCMRWF are CC BY-NC 4.0, but
+> DWD, ECCC, **ECMWF**, KMA, NCEP and UKMO are plain CC BY 4.0. Since
+> `origin=ecmwf`, this is redistributable on the same terms as ERA5 and can
+> go in the benchmark deposit. Published work must acknowledge TIGGE.
+> **Do not widen `origin` to another centre** without re-checking — that
+> would pull NC data in and force the whole deposit to non-commercial.
+
+### Validated before the full run
+
+One day at KL, 2020-06-15: control gives 158.6 W/m² over the 24–48 h
+interval, and the 50-member ensemble spans **99.3 to 184.9 W/m²** with a
+mean of 158.1 — the control sitting essentially on the ensemble mean. That
+spread is the predictability signal the lower bound is built from.
+
+Cross-check on the field itself: 0–24 h accumulates 15.38 MJ/m², and KL runs
+about 18 MJ/m²/day of GHI, which at `(1 − albedo) ≈ 0.87` predicts 15.7. The
+retrieval is what it claims to be.
+
+`ssr` is *net*, not global. The conversion to GHI is left to the analysis
+step, where NSRDB's per-timestep `surface_albedo` beats any constant this
+script could assume — and for a control-versus-perturbed spread the albedo
+factor very nearly cancels anyway.
+
 ## Known-Future Covariates and NWP Error
 
 ### Three tracks, not two
@@ -1203,6 +1299,10 @@ python scripts/train_gbdt.py --algorithm lightgbm --targets csi \
 
 # 6. Operational NWP incumbent -- ~30s. Needs the JMA cache.
 python scripts/run_nwp_baseline.py
+
+# 7. TIGGE ensemble for the predictability lower bound. ~13.6 GB and
+#    5-8 h, so run it on a machine that stays awake. Resumable.
+python scripts/pull_tigge_ensemble.py
 ```
 
 Everything appends to `data/processed/results/results.csv`. The harness skips
