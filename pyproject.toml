@@ -19,6 +19,12 @@ dependencies = [
     "netCDF4>=1.6",
     "matplotlib>=3.8",
     "seaborn>=0.13",
+    # Every cache and the results table are Parquet, so pandas needs an
+    # engine. Implicit on a machine that has it already, missing on a
+    # fresh one.
+    "pyarrow>=15.0",
+    # The download scripts read API keys from .env.
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
