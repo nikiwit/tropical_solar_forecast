@@ -75,12 +75,17 @@ Run:
     python scripts/pull_tigge_ensemble.py --months 1 2 3
     python scripts/pull_tigge_ensemble.py --extract-only
 
-Roughly 13.6 GB and 5-8 hours, almost all of it queue. Measured: a
-perturbed month is ~1109 MB and 25-40 min, a control month ~21 MB and
-90 s. ECDS runs one job at a time per user, so parallel processes only
-queue behind each other and buy nothing. Resumable: a month
-already on disk is skipped, so an interrupted run continues. Raw GRIB
-goes to ~/tigge_raw, outside the iCloud-synced repository.
+Roughly 13.6 GB. **Budget a day, not an evening**, and run it somewhere
+that does not sleep. Measured across 2020: a perturbed month is ~1109 MB
+and took anywhere from 1h22m to 11h47m to build, a control month ~21 MB
+and 45 s to 19 min. The spread is ECDS load, not request shape -- the
+11h47m month was followed immediately by a 1h22m one. ECDS runs a single
+job at a time per user, so parallel processes only queue behind each
+other and buy nothing.
+
+Resumable: a month already on disk is skipped, so an interrupted run
+continues. Raw GRIB goes to ~/tigge_raw, outside the iCloud-synced
+repository.
 """
 
 from __future__ import annotations
@@ -206,8 +211,24 @@ def month_path(raw_dir: Path, year: str, month: int, kind: str) -> Path:
     return raw_dir / f"tigge_{year}{month:02d}_{kind}.grib"
 
 
+def _request_for(year: str, month: int, kind: str, days) -> dict:
+    return {
+        "origin": "ecmwf",
+        "level_type": "single_level",
+        "variable": ["surface_net_solar_radiation"],
+        "forecast_type": kind,
+        "year": [year],
+        "month": [f"{month:02d}"],
+        "day": [f"{d:02d}" for d in days],
+        "time": [INIT_TIME],
+        "leadtime_hour": LEAD_HOURS,
+        "area": AREA,
+        "data_format": "grib",
+    }
+
+
 def download_month(api, year: str, month: int, kind: str, target: Path):
-    """One request covering a whole month for one forecast type.
+    """Fetch one month, falling back to two half-month requests.
 
     Downloads to a ``.part`` file and renames only once the transfer has
     finished. Resumption tests whether the final name exists, so a
@@ -215,25 +236,49 @@ def download_month(api, year: str, month: int, kind: str, target: Path):
     be treated as complete and silently feed truncated data into the
     extract -- which is exactly what happened to one month during
     development, at 303 MB against a normal 1109 MB.
+
+    The split exists because a whole-month request is not always
+    servable. December 2020 perturbed failed twice with a
+    ``MarsRuntimeError`` while eleven other months of identical shape
+    succeeded, including 31-day ones. Requested as 1-15 and 16-31 it
+    came back without complaint, and the two halves concatenated to
+    exactly the byte count of the other 31-day months. So the data was
+    always there; the single request was the problem.
+
+    GRIB is a sequence of self-describing messages, so concatenating the
+    halves is simply appending bytes -- no reassembly, and the extract
+    reads the result identically.
     """
-    days = pd.Period(f"{year}-{month:02d}").days_in_month
-    request = {
-        "origin": "ecmwf",
-        "level_type": "single_level",
-        "variable": ["surface_net_solar_radiation"],
-        "forecast_type": kind,
-        "year": [year],
-        "month": [f"{month:02d}"],
-        "day": [f"{d:02d}" for d in range(1, days + 1)],
-        "time": [INIT_TIME],
-        "leadtime_hour": LEAD_HOURS,
-        "area": AREA,
-        "data_format": "grib",
-    }
+    days = list(range(1, pd.Period(f"{year}-{month:02d}").days_in_month + 1))
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_suffix(target.suffix + ".part")
     partial.unlink(missing_ok=True)
-    api.retrieve(DATASET, request, str(partial))
+
+    try:
+        api.retrieve(
+            DATASET, _request_for(year, month, kind, days), str(partial)
+        )
+    except Exception as whole_month_error:
+        print(
+            f"    whole-month request failed ({whole_month_error}); "
+            "retrying as two halves",
+            flush=True,
+        )
+        midpoint = len(days) // 2
+        pieces = []
+        for n, chunk in enumerate((days[:midpoint], days[midpoint:]), start=1):
+            piece = target.with_suffix(f"{target.suffix}.part{n}")
+            piece.unlink(missing_ok=True)
+            api.retrieve(
+                DATASET, _request_for(year, month, kind, chunk), str(piece)
+            )
+            pieces.append(piece)
+
+        with open(partial, "wb") as out:
+            for piece in pieces:
+                out.write(piece.read_bytes())
+                piece.unlink()
+
     partial.replace(target)
 
 

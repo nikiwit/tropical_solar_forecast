@@ -747,7 +747,10 @@ which are precisely the horizons the grid code regulates.
 
 ## Predictability Study — TIGGE Ensemble
 
-`scripts/pull_tigge_ensemble.py`. Download in progress; no results yet.
+`scripts/pull_tigge_ensemble.py`. **Download complete** — 24 files, 13.6 GB
+raw, 36h47m. Extract is `data/processed/tigge/tigge_ensemble_2020.parquet`,
+**1,698,606 rows** in 7.4 MB: 7 sites x 51 members (control + 50 perturbed)
+x 366 days x 13 lead intervals.
 
 ### Why this exists
 
@@ -824,6 +827,77 @@ measured latitude gradient.
 > go in the benchmark deposit. Published work must acknowledge TIGGE.
 > **Do not widen `origin` to another centre** without re-checking — that
 > would pull NC data in and force the whole deposit to non-commercial.
+
+### First look: the error growth is there
+
+Kuala Lumpur, across-member standard deviation of interval-mean flux. The
+same local window a day further out is the cleanest way to see it:
+
+| Lead | Local window | Mean W/m² | Std | Range |
+|---|---|---|---|---|
+| 6 | 08–14 | 423.5 | **44.0** | 199.0 |
+| 30 | 08–14 | 444.0 | **52.6** | 239.4 |
+| 12 | 14–20 | 235.6 | **37.2** | 163.2 |
+| 36 | 14–20 | 241.2 | **44.1** | 192.5 |
+
+**Roughly 20% more spread for 24 hours more lead**, in both windows. That is
+predictability error growth, and it is what the lower bound is built from.
+
+The long leads show it flattening:
+
+| Lead | 72 h | 96 h | 120 h | 144 h | 168 h |
+|---|---|---|---|---|---|
+| Std | 21.8 | 23.1 | 23.5 | 24.2 | 25.0 |
+| Increment | — | +1.3 | +0.4 | +0.7 | +0.8 |
+
+Mean flux holds at 171–174 W/m² throughout, so the ensemble is not drifting —
+only its spread grows, and the increments are shrinking. **That is the
+saturation the extended lead range was bought to capture.** Stopping at 48 h,
+as originally planned, would have made the horizon unobservable.
+
+Night intervals read exactly 0.0 with 0.0 spread, which is the check that the
+accumulation differencing and the uneven lead spacing are both right.
+
+### Grid distance per site
+
+| Site | km | Site | km |
+|---|---|---|---|
+| kuala_lumpur | **4.5** | manila | 7.1 |
+| bangkok | 6.2 | jakarta | 7.3 |
+| kota_kinabalu | 6.6 | penang | 7.3 |
+| ho_chi_minh | 7.7 | | |
+
+Against ERA5's ~31 km, a 4–7x improvement in spatial fidelity.
+
+### December failed as a whole-month request
+
+`MarsRuntimeError`, twice, the second time in 53 seconds — deterministic, not
+transient. Eleven other months of identical shape succeeded, including 31-day
+ones. Requested as 1–15 and 16–31 it came back without complaint, and the two
+halves concatenated to **exactly** the byte count of the other 31-day months
+(1,109,207,900), extracting to the expected 141,050 rows.
+
+So the data was always there; the single request was the problem.
+`download_month` now falls back to two half-month requests automatically —
+GRIB is a sequence of self-describing messages, so joining the halves is
+appending bytes.
+
+> **Retry a failed month with a *narrower* request, not an identical one.**
+> Retrying the same whole-month request the second time cost an hour and
+> failed identically.
+
+### Measured timings, replacing the estimates
+
+Per-month build time on ECDS varied by an order of magnitude, so no single
+figure is useful:
+
+| Month | Jun | Jul | **Aug** | Sep | Oct | Nov |
+|---|---|---|---|---|---|---|
+| Perturbed | 2h14m | 3h21m | **11h47m** | 1h22m | 3h36m | 4h22m |
+
+August's 11h47m was congestion, not a trend — September came back in 1h22m
+right after. Control months are 45 s to 19 min. Budget a day, not an evening,
+and run it somewhere that does not sleep.
 
 ### Validated before the full run
 
