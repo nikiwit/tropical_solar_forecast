@@ -745,6 +745,89 @@ badly understates what a fresh run would give: at 20 min the incumbent scores
 comparison as meaningful.** The mapping is exact only at 24 h, 36 h and 48 h —
 which are precisely the horizons the grid code regulates.
 
+## Predictability Study — Upper Bound (fitted)
+
+`scripts/fit_predictability.py`, module `src/solarfc/predictability.py`,
+25 tests. Artefact committed at `data/processed/predictability/correlograms.json`.
+
+Yang's upper bound is the RMSE of clear-sky CLIPER, the optimal convex
+combination of climatology and persistence. A forecast worse than this is
+beaten by the reference, so the operator is better off without it.
+
+`A_r(tau) = {[1 - C(tau)^2] . V(kappa) . E(c^2)}^(1/2)` — Liu & Yang (2023),
+*RSER* 182:113359, Eqs. 4-5, with `C` a generalised Cauchy correlogram with
+nugget fitted to the empirical lag-h autocorrelation of the clear-sky index.
+
+### Fitted correlograms
+
+| Site | Nugget | Scale (h) | Nugget RMSE |
+|---|---|---|---|
+| kuala_lumpur | 0.0827 | 0.478 | 82 W/m² |
+| manila | 0.0740 | 0.296 | 80 W/m² |
+| bangkok | 0.0492 | 0.300 | 61 W/m² |
+| penang | 0.0423 | 0.417 | 60 W/m² |
+| kota_kinabalu | 0.0403 | 0.465 | 59 W/m² |
+| ho_chi_minh | 0.0398 | 0.225 | 58 W/m² |
+| jakarta | 0.0274 | 0.292 | 47 W/m² |
+
+`alpha` pins at its upper bound of 2.0 at every site — the data wants maximal
+smoothness at the origin. Legitimate within the family, but worth stating.
+
+> **The 10-minute grid is a real methodological advantage over the CONUS
+> study.** The nugget is the discontinuity as the lag approaches zero, and
+> hourly data can only extrapolate toward it. Fitted from 1 h upward the
+> nugget collapses onto the boundary at zero at all seven sites; fitted from
+> 10-minute lags it lands at 0.027-0.083, worth 47-82 W/m². Yang's CONUS
+> nuggets were 44-63 W/m², so these are comparable and now properly resolved.
+
+### Upper bound on RMSE, W/m²
+
+| Site | 20min | 1h | 3h | 6h | 24h | 48h |
+|---|---|---|---|---|---|---|
+| kuala_lumpur | 123 | 176 | 199 | 203 | 206 | 206 |
+| penang | 112 | 169 | 196 | 203 | 208 | 208 |
+| kota_kinabalu | 108 | 168 | 196 | 203 | 208 | 209 |
+| ho_chi_minh | 131 | 173 | 192 | 198 | 203 | 204 |
+| bangkok | 111 | 156 | 178 | 185 | 192 | 193 |
+| jakarta | 117 | 166 | 188 | 195 | 200 | 201 |
+| manila | 134 | 179 | 199 | 205 | 210 | 211 |
+
+Saturates by ~6 h, matching the CONUS finding that the elbow falls before 24 h.
+
+### Where the models sit — flat at ~28% of the ceiling
+
+`S* = 1 - A_f/A_r`, LightGBM `mae`/realistic/FULL:
+
+| | 20min | 1h | 3h | 6h | 12h | 24h | 48h |
+|---|---|---|---|---|---|---|---|
+| **Mean** | 0.20 | 0.28 | 0.28 | 0.28 | 0.27 | 0.28 | 0.26 |
+| bangkok | 0.27 | 0.33 | 0.32 | 0.32 | 0.31 | 0.33 | 0.30 |
+| manila | 0.14 | 0.23 | 0.23 | 0.21 | 0.20 | 0.20 | 0.19 |
+
+**Flat from 1 h to 48 h.** Model error and reference error grow and plateau
+together, so relative standing never degrades with horizon. Site ranking
+reproduces the difficulty ordering — Bangkok best, Manila worst.
+
+Mean over sites: model 96/121/143/147/151 W/m² at 20min/1h/6h/24h/48h against
+a ceiling of 119/169/199/204/205, so **54-56 W/m² of headroom past 2 h**.
+
+> **That headroom is to the *worst acceptable* forecast, not the best
+> possible one.** How much of it is winnable is what the lower bound answers,
+> and it needs the TIGGE ensemble — which is downloaded and waiting. Do not
+> quote the 56 W/m² as achievable improvement.
+
+### On the diurnal bumps and missing lags
+
+The empirical autocorrelation is not monotone: it decays to ~0 by 9-10 h, dips
+negative where daytime pairs with night, then rebounds to 0.23 at 24 h and
+48 h. Pair counts swing from 124,000 at a 24 h lag to **none at all** at 12 h
+and 36 h, where no daytime sample has a daytime partner.
+
+This is why the correlogram is fitted rather than used empirically — a smooth
+curve evaluates at horizons that have no valid pairs. Yang's Figure 2 shows the
+same rebounds over CONUS and treats them identically. Night is held as NaN
+rather than dropped, so lag spacing stays true; Yang states this explicitly.
+
 ## Predictability Study — TIGGE Ensemble
 
 `scripts/pull_tigge_ensemble.py`. **Download complete** — 24 files, 13.6 GB
